@@ -1,0 +1,31 @@
+openapi: "3.1.0"
+info:
+  title: Webhooks Test (OpenAPI 3.1)
+  version: "1.0.0"
+paths: {}
+webhooks:
+  orderCreated:
+    post:
+      operationId: handleOrderCreated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId]
+              properties:
+                orderId:
+                  type: string
+                amount:
+                  type: integer
+      responses:
+        "200":
+          description: ack
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean

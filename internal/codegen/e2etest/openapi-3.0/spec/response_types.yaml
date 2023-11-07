@@ -1,0 +1,236 @@
+openapi: "3.0.3"
+info:
+  title: Response Types Test
+  version: "1.0.0"
+paths:
+  /json-response:
+    get:
+      operationId: getJsonData
+      responses:
+        "200":
+          description: JSON response
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message:
+                    type: string
+                  count:
+                    type: integer
+  /json-ref-response:
+    get:
+      operationId: getJsonRef
+      responses:
+        "200":
+          description: JSON ref response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /pdf-download:
+    get:
+      operationId: downloadPdf
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /image-download:
+    get:
+      operationId: downloadImage
+      responses:
+        "200":
+          description: Image file
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+  /audio-download:
+    get:
+      operationId: downloadAudio
+      responses:
+        "200":
+          description: Audio file
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+  /video-download:
+    get:
+      operationId: downloadVideo
+      responses:
+        "200":
+          description: Video file
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+  /binary-download:
+    get:
+      operationId: downloadBinary
+      responses:
+        "200":
+          description: Binary file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /zip-download:
+    get:
+      operationId: downloadZip
+      responses:
+        "200":
+          description: Zip file
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+  /text-response:
+    get:
+      operationId: getTextContent
+      responses:
+        "200":
+          description: Plain text
+          content:
+            text/plain:
+              schema:
+                type: string
+  /csv-export:
+    get:
+      operationId: exportCsv
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+  /html-page:
+    get:
+      operationId: getHtmlPage
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+  /redirect:
+    get:
+      operationId: redirectToHome
+      responses:
+        "301":
+          description: Redirect
+  /no-content:
+    delete:
+      operationId: deleteItem
+      responses:
+        "204":
+          description: No content
+  /json-priority:
+    get:
+      operationId: getWithMultipleTypes
+      responses:
+        "200":
+          description: Multiple content types - JSON should win
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+            text/plain:
+              schema:
+                type: string
+  /empty-response:
+    get:
+      operationId: getEmpty
+      responses:
+        "200":
+          description: No content defined
+  /accepted-job:
+    post:
+      operationId: createJob
+      responses:
+        "202":
+          description: Accepted job
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+  /created-item:
+    post:
+      operationId: createItem
+      responses:
+        "201":
+          description: Created item
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: string
+  /partial-download:
+    get:
+      operationId: downloadPartial
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Complete file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /head-check:
+    head:
+      operationId: headCheck
+      responses:
+        "204":
+          description: Headers only
+  /options-check:
+    options:
+      operationId: optionsCheck
+      responses:
+        "204":
+          description: Options
+components:
+  schemas:
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string

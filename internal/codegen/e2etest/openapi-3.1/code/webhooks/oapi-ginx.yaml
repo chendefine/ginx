@@ -1,0 +1,6 @@
+package: webhooks
+spec: ../../spec/webhooks.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

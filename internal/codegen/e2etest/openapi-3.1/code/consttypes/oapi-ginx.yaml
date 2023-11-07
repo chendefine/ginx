@@ -1,0 +1,6 @@
+package: consttypes
+spec: ../../spec/const_types.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

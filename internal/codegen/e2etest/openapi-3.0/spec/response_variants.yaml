@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: Response variants
+  version: 1.0.0
+paths:
+  /jobs:
+    post:
+      operationId: createJob
+      x-ginx-response-mode: variants
+      parameters:
+        - name: outcome
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Created synchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: string
+        "202":
+          description: Accepted for asynchronous processing
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+        "204":
+          description: Completed without a response body
+        "400":
+          description: Invalid outcome

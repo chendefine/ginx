@@ -1,0 +1,43 @@
+openapi: "3.1.0"
+info:
+  title: Defs and Refs Test (OpenAPI 3.1)
+  version: "1.0.0"
+  # license.identifier is an OpenAPI 3.1 SPDX field; it must not break parsing.
+  license:
+    name: MIT License
+    identifier: MIT
+paths:
+  /person:
+    get:
+      operationId: getPerson
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+components:
+  schemas:
+    Address:
+      type: object
+      properties:
+        street:
+          type: string
+        city:
+          type: string
+    Person:
+      type: object
+      # $defs (OpenAPI 3.1 / JSON Schema 2020-12) must parse without breaking
+      # generation. They are not emitted as standalone types unless referenced.
+      $defs:
+        InternalTag:
+          type: string
+          enum: [alpha, beta]
+      properties:
+        name:
+          type: string
+        home:
+          $ref: '#/components/schemas/Address'
+        shipping:
+          $ref: '#/components/schemas/Address'

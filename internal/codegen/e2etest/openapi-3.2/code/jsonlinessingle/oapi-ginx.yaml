@@ -1,0 +1,6 @@
+package: jsonlinessingle
+spec: ../../spec/jsonlines.yaml
+output: api.gen.go
+output_options:
+  generate_server: true
+  generate_client: true

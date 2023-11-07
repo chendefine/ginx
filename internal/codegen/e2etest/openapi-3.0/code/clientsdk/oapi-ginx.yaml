@@ -1,0 +1,6 @@
+package: clientsdk
+spec: ../../spec/client_sdk.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

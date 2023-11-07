@@ -1,0 +1,56 @@
+openapi: "3.1.0"
+info:
+  title: Envelope Unwrap Test (OpenAPI 3.1)
+  version: "1.0.0"
+paths:
+  /user:
+    get:
+      operationId: getUser
+      responses:
+        "200":
+          description: Inline nullable envelope (3.1 type arrays), data is a $ref
+          content:
+            application/json:
+              schema:
+                type: ["object", "null"]
+                properties:
+                  code:
+                    type: ["integer", "null"]
+                  msg:
+                    type: ["string", "null"]
+                  data:
+                    $ref: "#/components/schemas/User"
+  /account:
+    get:
+      operationId: getAccount
+      responses:
+        "200":
+          description: allOf-composed reusable envelope with 3.1 nullable fields
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    Envelope:
+      type: ["object", "null"]
+      description: Reusable nullable success envelope; data is a generic placeholder specialized per operation.
+      properties:
+        code:
+          type: ["integer", "null"]
+        msg:
+          type: ["string", "null"]
+        data:
+          description: 业务数据

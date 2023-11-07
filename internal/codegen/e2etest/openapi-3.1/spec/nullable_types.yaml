@@ -1,0 +1,36 @@
+openapi: "3.1.0"
+info:
+  title: Nullable Types Test (OpenAPI 3.1)
+  version: "1.0.0"
+paths:
+  /nullable:
+    get:
+      operationId: getNullable
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NullableSample'
+components:
+  schemas:
+    NullableSample:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+        # OpenAPI 3.1 nullable via type arrays.
+        nickname:
+          type: ["string", "null"]
+        age:
+          type: ["integer", "null"]
+        score:
+          type: ["number", "null"]
+        flag:
+          type: ["boolean", "null"]
+        tags:
+          type: ["array", "null"]
+          items:
+            type: string

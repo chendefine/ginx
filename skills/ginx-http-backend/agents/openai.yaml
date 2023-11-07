@@ -1,0 +1,4 @@
+interface:
+  display_name: "ginx HTTP Backend"
+  short_description: "Build OpenAPI-first ginx services"
+  default_prompt: "Use $ginx-http-backend to define an OpenAPI contract, generate the Go scaffolding, and implement the business handlers with the ginx runtime."

@@ -1,0 +1,6 @@
+package: configtags
+spec: ../../spec/config_tags.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

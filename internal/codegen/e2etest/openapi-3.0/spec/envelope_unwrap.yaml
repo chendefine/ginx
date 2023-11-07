@@ -1,0 +1,100 @@
+openapi: "3.0.3"
+info:
+  title: Envelope Unwrap Test
+  version: "1.0.0"
+paths:
+  /user:
+    get:
+      operationId: getUser
+      responses:
+        "200":
+          description: User wrapped in the ginx envelope (inline envelope, data is a $ref)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  msg:
+                    type: string
+                  data:
+                    $ref: "#/components/schemas/User"
+  /product:
+    get:
+      operationId: getProduct
+      responses:
+        "200":
+          description: Product wrapped in the ginx envelope (inline envelope, inline data object)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  msg:
+                    type: string
+                  data:
+                    type: object
+                    required: [id, name, price]
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      price:
+                        type: number
+  /wrapped:
+    get:
+      operationId: getWrapped
+      responses:
+        "200":
+          description: Response is a $ref to the envelope schema itself
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse"
+  /account:
+    get:
+      operationId: getAccount
+      responses:
+        "200":
+          description: Response composes a reusable Envelope with a specific data via allOf
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    Envelope:
+      type: object
+      description: Reusable success envelope; data is a generic placeholder specialized per operation.
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          description: 业务数据
+    ApiResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/User"

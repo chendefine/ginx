@@ -1,0 +1,64 @@
+openapi: "3.1.0"
+info:
+  title: OpenAPI 3.1 Features Test
+  version: "1.0.0"
+paths:
+  /oai31/validate:
+    post:
+      operationId: createOai31
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - status
+                - score
+                - level
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                email:
+                  type: string
+                  format: email
+                status:
+                  type: string
+                  enum:
+                    - active
+                    - inactive
+                # OpenAPI 3.1 numeric exclusive bounds (standalone, no
+                # companion minimum/maximum) -> validator gt=/lt=.
+                score:
+                  type: integer
+                  exclusiveMinimum: 0
+                  exclusiveMaximum: 100
+                level:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+                # OpenAPI 3.1 nullable via type array ["string", "null"].
+                nickname:
+                  type:
+                    - string
+                    - "null"
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  uniqueItems: true
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string

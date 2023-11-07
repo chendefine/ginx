@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Codegen end-to-end test
+        run: ./scripts/test-codegen-e2e.sh
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Race test
+        run: go test -race ./... -count=1
+
+      - name: Verify generated files are current
+        run: git diff --exit-code
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Generate codegen fixtures
+        run: ./scripts/generate-codegen-e2e.sh
+
+      - name: Run govulncheck
+        run: go tool govulncheck ./...
