@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 type HandleOption int8
@@ -36,6 +37,10 @@ func SetInvalidArgumentCode(n int) {
 
 func SetInternalServerErrorCode(n int) {
 	defaultInternalServerErrorCode = n
+}
+
+func SetJsonDecoderUseNumber(b bool) {
+	binding.EnableDecoderUseNumber = b
 }
 
 type handleConfig struct {
