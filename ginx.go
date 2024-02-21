@@ -2,6 +2,7 @@ package ginx
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,8 @@ const (
 	NoDataWrap HandleOption = -1 // 如果handle正常返回, 则返回的数据结构不包在"data"字段内, 没有code和msg字段
 
 	NoPbParse HandleOption = -2 // 跳过pb注册
+
+	HttpStatusAlwaysOK HandleOption = -3 // http status code总是返回200 OK, 不管err返回的是nil还是error
 )
 
 var (
@@ -46,6 +49,7 @@ func SetJsonDecoderUseNumber(b bool) {
 type handleConfig struct {
 	dataWrap  bool
 	noPbParse bool
+	alwaysOK  bool
 }
 
 func parseHandleOptions(opts []HandleOption) handleConfig {
@@ -61,6 +65,9 @@ func parseHandleOptions(opts []HandleOption) handleConfig {
 
 		case NoPbParse:
 			cfg.noPbParse = true
+
+		case HttpStatusAlwaysOK:
+			cfg.alwaysOK = true
 		}
 	}
 	return cfg
@@ -72,6 +79,8 @@ type iRouter interface {
 }
 
 type ErrWrap struct {
+	HttpStatus int `json:"-"`
+
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
 }
@@ -82,7 +91,7 @@ type rspWrap struct {
 }
 
 func (e ErrWrap) Error() string {
-	return e.Msg
+	return fmt.Sprintf("code: %d, msg: %s", e.Code, e.Msg)
 }
 
 func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
@@ -99,27 +108,43 @@ func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.
 	}
 
 	var handler = func(c *gin.Context) {
-		var req Req
-		c.ShouldBindUri(&req)
-		if err := c.ShouldBindQuery(&req); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: err.Error()}, Data: nil})
+		req := new(Req)
+		statusCode := http.StatusOK
+		c.ShouldBindUri(req)
+		if err := c.ShouldBindQuery(req); err != nil {
+			if !cfg.alwaysOK {
+				statusCode = http.StatusBadRequest
+			}
+			c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: err.Error()}, Data: nil})
 			return
 		}
 
-		rsp, err := handle(c, &req)
+		rsp, err := handle(c, req)
 		if c.IsAborted() {
 			return
 		} else if err != nil {
-			if e, ok := err.(ErrWrap); ok {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, e)
-			} else {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
+			if !cfg.alwaysOK {
+				statusCode = http.StatusInternalServerError
+			}
+			switch e := err.(type) {
+			case ErrWrap:
+				if !cfg.alwaysOK && e.HttpStatus > 0 {
+					statusCode = e.HttpStatus
+				}
+				c.AbortWithStatusJSON(statusCode, e)
+			case *ErrWrap:
+				if !cfg.alwaysOK && e.HttpStatus > 0 {
+					statusCode = e.HttpStatus
+				}
+				c.AbortWithStatusJSON(statusCode, e)
+			default:
+				c.AbortWithStatusJSON(statusCode, ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()})
 			}
 		} else {
 			if cfg.dataWrap {
-				c.JSON(http.StatusOK, rspWrap{Data: rsp})
+				c.JSON(statusCode, rspWrap{Data: rsp})
 			} else {
-				c.JSON(http.StatusOK, rsp)
+				c.JSON(statusCode, rsp)
 			}
 		}
 	}
@@ -140,30 +165,46 @@ func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context
 	}
 
 	var handler = func(c *gin.Context) {
-		var req Req
-		c.ShouldBindUri(&req)
-		c.ShouldBindQuery(&req)
+		req := new(Req)
+		statusCode := http.StatusOK
+		c.ShouldBindUri(req)
+		c.ShouldBindQuery(req)
 		if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.AbortWithStatusJSON(http.StatusBadRequest, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: err.Error()}, Data: nil})
+			if err := c.ShouldBindJSON(req); err != nil {
+				if !cfg.alwaysOK {
+					statusCode = http.StatusBadRequest
+				}
+				c.AbortWithStatusJSON(statusCode, ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()})
 				return
 			}
 		}
 
-		rsp, err := handle(c, &req)
+		rsp, err := handle(c, req)
 		if c.IsAborted() {
 			return
 		} else if err != nil {
-			if e, ok := err.(ErrWrap); ok {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, e)
-			} else {
-				c.AbortWithStatusJSON(http.StatusInternalServerError, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
+			if !cfg.alwaysOK {
+				statusCode = http.StatusInternalServerError
+			}
+			switch e := err.(type) {
+			case ErrWrap:
+				if !cfg.alwaysOK && e.HttpStatus > 0 {
+					statusCode = e.HttpStatus
+				}
+				c.AbortWithStatusJSON(statusCode, e)
+			case *ErrWrap:
+				if !cfg.alwaysOK && e.HttpStatus > 0 {
+					statusCode = e.HttpStatus
+				}
+				c.AbortWithStatusJSON(statusCode, e)
+			default:
+				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
 			}
 		} else {
 			if cfg.dataWrap {
-				c.JSON(http.StatusOK, rspWrap{Data: rsp})
+				c.JSON(statusCode, rspWrap{Data: rsp})
 			} else {
-				c.JSON(http.StatusOK, rsp)
+				c.JSON(statusCode, rsp)
 			}
 		}
 	}
