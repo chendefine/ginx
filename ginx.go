@@ -7,69 +7,17 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-)
-
-type HandleOption int8
-
-const (
-	DataWrap   HandleOption = 1  // 如果handle正常返回, 则返回的数据结构包在"data"字段内, 还有code=0和msg=""
-	NoDataWrap HandleOption = -1 // 如果handle正常返回, 则返回的数据结构不包在"data"字段内, 没有code和msg字段
-
-	NoPbParse HandleOption = -2 // 跳过pb注册
-
-	HttpStatusAlwaysOK HandleOption = -3 // http status code总是返回200 OK, 不管err返回的是nil还是error
-)
-
-var (
-	defaultDataWrap = true // 默认返回的数据结构包在"data"字段内, 还有code=0和msg=""
-
-	defaultInvalidArgumentCode     = 1
-	defaultInternalServerErrorCode = 2
 )
 
 var EmptyHandler = func(context.Context, *struct{}) (*struct{}, error) { return nil, nil }
 
-func SetDataWrap(b bool) {
-	defaultDataWrap = b
-}
-
-func SetInvalidArgumentCode(n int) {
-	defaultInvalidArgumentCode = n
-}
-
-func SetInternalServerErrorCode(n int) {
-	defaultInternalServerErrorCode = n
-}
-
-func SetJsonDecoderUseNumber(b bool) {
-	binding.EnableDecoderUseNumber = b
-}
-
-type handleConfig struct {
-	dataWrap  bool
-	noPbParse bool
-	alwaysOK  bool
-}
-
 func parseHandleOptions(opts []HandleOption) handleConfig {
-	cfg := handleConfig{
-		dataWrap: defaultDataWrap,
-	}
+	cfg := globalConfig
+
 	for _, opt := range opts {
-		switch opt {
-		case DataWrap:
-			cfg.dataWrap = true
-		case NoDataWrap:
-			cfg.dataWrap = false
-
-		case NoPbParse:
-			cfg.noPbParse = true
-
-		case HttpStatusAlwaysOK:
-			cfg.alwaysOK = true
-		}
+		opt(&cfg)
 	}
+
 	return cfg
 }
 
@@ -97,7 +45,7 @@ func (e ErrWrap) Error() string {
 func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 
-	if !cfg.noPbParse {
+	if cfg.pbParse {
 		var req Req
 		var rsp Rsp
 		if r, ok := router.(*gin.Engine); ok {
@@ -115,7 +63,7 @@ func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.
 			if !cfg.alwaysOK {
 				statusCode = http.StatusBadRequest
 			}
-			c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: err.Error()}, Data: nil})
+			c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: cfg.invalidArgumentCode, Msg: err.Error()}, Data: nil})
 			return
 		}
 
@@ -138,7 +86,7 @@ func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.
 				}
 				c.AbortWithStatusJSON(statusCode, e)
 			default:
-				c.AbortWithStatusJSON(statusCode, ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()})
+				c.AbortWithStatusJSON(statusCode, ErrWrap{Code: cfg.internalServerErrorCode, Msg: err.Error()})
 			}
 		} else {
 			if cfg.dataWrap {
@@ -154,7 +102,7 @@ func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.
 func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 
-	if !cfg.noPbParse {
+	if cfg.pbParse {
 		var req Req
 		var rsp Rsp
 		if r, ok := router.(*gin.Engine); ok {
@@ -174,7 +122,7 @@ func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context
 				if !cfg.alwaysOK {
 					statusCode = http.StatusBadRequest
 				}
-				c.AbortWithStatusJSON(statusCode, ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()})
+				c.AbortWithStatusJSON(statusCode, ErrWrap{Code: cfg.internalServerErrorCode, Msg: err.Error()})
 				return
 			}
 		}
@@ -198,7 +146,7 @@ func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context
 				}
 				c.AbortWithStatusJSON(statusCode, e)
 			default:
-				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
+				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: cfg.internalServerErrorCode, Msg: err.Error()}})
 			}
 		} else {
 			if cfg.dataWrap {
