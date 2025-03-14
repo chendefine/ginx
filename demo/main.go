@@ -62,8 +62,8 @@ func main() {
 
 	g := e.Group("/api/v1")
 	ginx.GET(g, "/test/:name", handleGreet)
-	ginx.GET(g, "/test_no_data_wrap/:name", handleGreet, ginx.DisableDataWrap())
+	ginx.GET(g, "/test_no_data_wrap/:name", handleGreet, ginx.NoDataWrap)
 	ginx.GET(g, "/test_gin_context/:name", handleGreetWithGinContext)
-	ginx.POST(g, "/test_map_slice", handleMapSlice, ginx.DisablePbParse())
+	ginx.POST(g, "/test_map_slice", handleMapSlice, ginx.NoPbParse)
 	e.Run(":8081")
 }

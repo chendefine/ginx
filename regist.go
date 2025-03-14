@@ -37,6 +37,12 @@ var (
 
 	nullType   = reflect.TypeOf(struct{}{})
 	nullLayout = &structLayout{Type: nullType, Name: "Null"}
+	anyLayout  = &structLayout{Type: nullType, Name: "Any"}
+
+	reflectTypeOfCode = reflect.TypeOf(int32(0))
+	reflectTypeOfMsg  = reflect.TypeOf("")
+
+	reflectKindOfAny = reflect.TypeOf(Any{}).Kind()
 )
 
 type fieldMeta struct {
@@ -74,6 +80,10 @@ func trimName(name string) string {
 }
 
 func (layout structLayout) TrimName() string {
+	return trimName(layout.Name)
+}
+
+func (layout structLayout) TrimNameWrap() string {
 	return trimName(layout.Name)
 }
 
@@ -196,7 +206,9 @@ func parseStruct(typ reflect.Type) *structLayout {
 		return layout
 	}
 
-	if typ.Kind() != reflect.Struct {
+	if typ.Kind() == reflectKindOfAny {
+		return anyLayout
+	} else if typ.Kind() != reflect.Struct {
 		panic(fmt.Errorf("not a struct(%s)", typ.String()))
 	}
 
@@ -220,6 +232,18 @@ func parseStruct(typ reflect.Type) *structLayout {
 	return layout
 }
 
+func wrapRspStruct(layout *structLayout) *structLayout {
+	wrapLayout := &structLayout{
+		Name: layout.Name + "Wrap",
+		Fields: []*fieldMeta{
+			{Type: reflectTypeOfCode, Name: "Code", TagName: "code", Form: "int32"},
+			{Type: reflectTypeOfMsg, Name: "Msg", TagName: "msg", Form: "string"},
+			{Type: layout.Type, Name: "Data", TagName: "data", Form: parseFieldForm(layout.Type)},
+		},
+	}
+	return wrapLayout
+}
+
 func registStruct(layout *structLayout) {
 	if _, ok := layoutExist[layout.Name]; ok {
 		return
@@ -239,9 +263,12 @@ func registService(method, path string, funcName string, req, rsp *structLayout)
 	serviceExist[endpoint] = service
 }
 
-func regist(method string, router iRouter, path string, handle, req, rsp any) {
+func regist(method string, router iRouter, path string, handle, req, rsp any, wrapRsp bool) {
 	funcName := getFuncName(handle)
 	reqLayout, rspLayout := parseStruct(reflect.TypeOf(req)), parseStruct(reflect.TypeOf(rsp))
+	if wrapRsp {
+		rspLayout = wrapRspStruct(rspLayout)
+	}
 	registStruct(reqLayout)
 	registStruct(rspLayout)
 	registService(method, joinPaths(router.BasePath(), path), funcName, reqLayout, rspLayout)
