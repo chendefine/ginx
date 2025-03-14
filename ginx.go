@@ -95,17 +95,40 @@ func (e ErrWrap) Error() string {
 
 func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
+	registFuncMetadata(router, path, http.MethodGet, handle, cfg)
+	var handler = parseFormHandler(cfg, handle)
+	router.GET(path, handler)
+}
 
-	if !cfg.noPbParse {
-		var req Req
-		var rsp Rsp
-		if r, ok := router.(*gin.Engine); ok {
-			regist(http.MethodPost, r, path, handle, req, rsp, cfg.dataWrap)
-		} else if g, ok := router.(*gin.RouterGroup); ok {
-			regist(http.MethodPost, g, path, handle, req, rsp, cfg.dataWrap)
-		}
-	}
+func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	cfg := parseHandleOptions(opts)
+	registFuncMetadata(router, path, http.MethodPost, handle, cfg)
+	var handler = parseBodyHandler(cfg, handle)
+	router.POST(path, handler)
+}
 
+func PUT[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	cfg := parseHandleOptions(opts)
+	registFuncMetadata(router, path, http.MethodPut, handle, cfg)
+	var handler = parseBodyHandler(cfg, handle)
+	router.PUT(path, handler)
+}
+
+func PATCH[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	cfg := parseHandleOptions(opts)
+	registFuncMetadata(router, path, http.MethodPatch, handle, cfg)
+	var handler = parseBodyHandler(cfg, handle)
+	router.PATCH(path, handler)
+}
+
+func DELETE[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	cfg := parseHandleOptions(opts)
+	registFuncMetadata(router, path, http.MethodDelete, handle, cfg)
+	var handler = parseFormHandler(cfg, handle)
+	router.DELETE(path, handler)
+}
+
+func parseFormHandler[Req any, Rsp any](cfg handleConfig, handle func(context.Context, *Req) (*Rsp, error)) func(c *gin.Context) {
 	var handler = func(c *gin.Context) {
 		var req Req
 		statusCode := http.StatusOK
@@ -138,22 +161,10 @@ func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.
 			}
 		}
 	}
-	router.GET(path, handler)
+	return handler
 }
 
-func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
-	cfg := parseHandleOptions(opts)
-
-	if !cfg.noPbParse {
-		var req Req
-		var rsp Rsp
-		if r, ok := router.(*gin.Engine); ok {
-			regist(http.MethodPost, r, path, handle, req, rsp, cfg.dataWrap)
-		} else if g, ok := router.(*gin.RouterGroup); ok {
-			regist(http.MethodPost, g, path, handle, req, rsp, cfg.dataWrap)
-		}
-	}
-
+func parseBodyHandler[Req any, Rsp any](cfg handleConfig, handle func(context.Context, *Req) (*Rsp, error)) func(c *gin.Context) {
 	var handler = func(c *gin.Context) {
 		var req Req
 		statusCode := http.StatusOK
@@ -189,5 +200,17 @@ func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context
 			}
 		}
 	}
-	router.POST(path, handler)
+	return handler
+}
+
+func registFuncMetadata[Req any, Rsp any](router gin.IRoutes, path string, method string, handle func(context.Context, *Req) (*Rsp, error), cfg handleConfig) {
+	if !cfg.noPbParse {
+		var req Req
+		var rsp Rsp
+		if r, ok := router.(*gin.Engine); ok {
+			regist(method, r, path, handle, req, rsp, cfg.dataWrap)
+		} else if g, ok := router.(*gin.RouterGroup); ok {
+			regist(method, g, path, handle, req, rsp, cfg.dataWrap)
+		}
+	}
 }
