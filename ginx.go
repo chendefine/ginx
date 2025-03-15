@@ -96,86 +96,59 @@ func (e ErrWrap) Error() string {
 func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 	registFuncMetadata(router, path, http.MethodGet, handle, cfg)
-	var handler = parseFormHandler(cfg, handle)
+	var handler = makeHandlerFunc(cfg, handle)
 	router.GET(path, handler)
 }
 
 func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 	registFuncMetadata(router, path, http.MethodPost, handle, cfg)
-	var handler = parseBodyHandler(cfg, handle)
+	var handler = makeHandlerFunc(cfg, handle)
 	router.POST(path, handler)
 }
 
 func PUT[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 	registFuncMetadata(router, path, http.MethodPut, handle, cfg)
-	var handler = parseBodyHandler(cfg, handle)
+	var handler = makeHandlerFunc(cfg, handle)
 	router.PUT(path, handler)
 }
 
 func PATCH[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 	registFuncMetadata(router, path, http.MethodPatch, handle, cfg)
-	var handler = parseBodyHandler(cfg, handle)
+	var handler = makeHandlerFunc(cfg, handle)
 	router.PATCH(path, handler)
 }
 
 func DELETE[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
 	registFuncMetadata(router, path, http.MethodDelete, handle, cfg)
-	var handler = parseFormHandler(cfg, handle)
+	var handler = makeHandlerFunc(cfg, handle)
 	router.DELETE(path, handler)
 }
 
-func parseFormHandler[Req any, Rsp any](cfg handleConfig, handle func(context.Context, *Req) (*Rsp, error)) func(c *gin.Context) {
+func makeHandlerFunc[Req any, Rsp any](cfg handleConfig, handle func(context.Context, *Req) (*Rsp, error)) func(c *gin.Context) {
 	var handler = func(c *gin.Context) {
 		var req Req
 		statusCode := http.StatusOK
+		c.ShouldBindHeader(&req)
 		c.ShouldBindUri(&req)
-		if err := c.ShouldBindQuery(&req); err != nil {
-			if !cfg.alwaysOK {
-				statusCode = http.StatusBadRequest
-			}
-			c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: err.Error()}, Data: nil})
-			return
-		}
-
-		rsp, err := handle(c, &req)
-		if c.IsAborted() {
-			return
-		} else if err != nil {
-			if !cfg.alwaysOK {
-				statusCode = http.StatusInternalServerError
-			}
-			if e, ok := err.(ErrWrap); ok {
-				c.AbortWithStatusJSON(statusCode, e)
-			} else {
-				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
-			}
-		} else {
-			if cfg.dataWrap {
-				c.JSON(statusCode, rspWrap{Data: rsp})
-			} else {
-				c.JSON(statusCode, rsp)
-			}
-		}
-	}
-	return handler
-}
-
-func parseBodyHandler[Req any, Rsp any](cfg handleConfig, handle func(context.Context, *Req) (*Rsp, error)) func(c *gin.Context) {
-	var handler = func(c *gin.Context) {
-		var req Req
-		statusCode := http.StatusOK
-		c.ShouldBindUri(&req)
-		c.ShouldBindQuery(&req)
+		bindQueryErr := c.ShouldBindQuery(&req)
 		if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
 			if err := c.ShouldBindJSON(&req); err != nil {
 				if !cfg.alwaysOK {
 					statusCode = http.StatusBadRequest
 				}
 				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: err.Error()}, Data: nil})
+				return
+			}
+		} else {
+			if bindQueryErr != nil {
+				if !cfg.alwaysOK {
+					statusCode = http.StatusBadRequest
+				}
+				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInvalidArgumentCode, Msg: bindQueryErr.Error()}, Data: nil})
 				return
 			}
 		}

@@ -9,16 +9,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var cnt int
-
 type greetReq struct {
 	Name string `uri:"name" binding:"required"`
-	Num  int    `form:"num" binding:"gt=0"`
+	Head string `header:"X-Head" binding:"required"`
+	Num1 int    `form:"num1" binding:"gt=0"`
+	Num2 int    `form:"num2" binding:"gt=0"`
 }
 
 type greetRsp struct {
 	Greet string `json:"greet"`
-	Count int    `json:"count"`
+	Head  string `json:"head"`
+	Num1  int    `json:"num1"`
+	Num2  int    `json:"num2"`
 }
 
 type mapSlice struct {
@@ -26,26 +28,17 @@ type mapSlice struct {
 }
 
 func handleGreet(ctx context.Context, r *greetReq) (*greetRsp, error) {
-	if r.Num > 10 {
-		return nil, ginx.ErrWrap{Code: 1001, Msg: "request num should not greater than 10"}
-	}
-
-	cnt += r.Num
-	res := greetRsp{Greet: fmt.Sprintf("hello %s!", r.Name), Count: cnt}
+	res := greetRsp{Greet: fmt.Sprintf("hello %s!", r.Name), Num1: r.Num1, Num2: r.Num2, Head: r.Head}
 	return &res, nil
 }
 
 func handleGreetWithGinContext(ctx context.Context, r *greetReq) (*greetRsp, error) {
-	if r.Num > 10 {
-		return nil, ginx.ErrWrap{Code: 1001, Msg: "request num should not greater than 10"}
-	}
-
 	c, ok := ctx.(*gin.Context)
 	if !ok {
 		return nil, ginx.ErrWrap{Code: 1001, Msg: "invalid handle option"}
 	}
 
-	c.String(http.StatusOK, "hello %s, count: %d", r.Name, cnt)
+	c.String(http.StatusOK, "hello %s, num1: %d, num2: %d, head: %s", r.Name, r.Num1, r.Num2, r.Head)
 	c.Abort()
 
 	return nil, nil
