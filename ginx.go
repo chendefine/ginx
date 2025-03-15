@@ -79,18 +79,9 @@ type iRouter interface {
 
 type Any map[string]any
 
-type ErrWrap struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-}
-
 type rspWrap struct {
 	ErrWrap
 	Data any `json:"data,omitempty"`
-}
-
-func (e ErrWrap) Error() string {
-	return e.Msg
 }
 
 func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
@@ -160,7 +151,10 @@ func makeHandlerFunc[Req any, Rsp any](cfg handleConfig, handle func(context.Con
 			if !cfg.alwaysOK {
 				statusCode = http.StatusInternalServerError
 			}
-			if e, ok := err.(ErrWrap); ok {
+			if e, ok := err.(*ErrWrap); ok {
+				if e.HttpCode > 100 && e.HttpCode < 600 {
+					statusCode = e.HttpCode
+				}
 				c.AbortWithStatusJSON(statusCode, e)
 			} else {
 				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
