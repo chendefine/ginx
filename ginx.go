@@ -15,8 +15,6 @@ const (
 	DataWrap   HandleOption = 1  // 如果handle正常返回, 则返回的数据结构包在"data"字段内, 还有code=0和msg=""
 	NoDataWrap HandleOption = -1 // 如果handle正常返回, 则返回的数据结构不包在"data"字段内, 没有code和msg字段
 
-	NoPbParse HandleOption = -2 // 跳过pb注册
-
 	StatusCodeAlwaysOK HandleOption = -3 // http status code总是返回200 OK, 不管err返回的是nil还是error
 )
 
@@ -46,9 +44,8 @@ func SetJsonDecoderUseNumber(b bool) {
 }
 
 type handleConfig struct {
-	dataWrap  bool
-	noPbParse bool
-	alwaysOK  bool
+	dataWrap bool
+	alwaysOK bool
 }
 
 func parseHandleOptions(opts []HandleOption) handleConfig {
@@ -61,20 +58,11 @@ func parseHandleOptions(opts []HandleOption) handleConfig {
 			cfg.dataWrap = true
 		case NoDataWrap:
 			cfg.dataWrap = false
-
-		case NoPbParse:
-			cfg.noPbParse = true
-
 		case StatusCodeAlwaysOK:
 			cfg.alwaysOK = true
 		}
 	}
 	return cfg
-}
-
-type iRouter interface {
-	gin.IRouter
-	BasePath() string
 }
 
 type Any map[string]any
@@ -86,35 +74,30 @@ type rspWrap struct {
 
 func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
-	registFuncMetadata(router, path, http.MethodGet, handle, cfg)
 	var handler = makeHandlerFunc(cfg, handle)
 	router.GET(path, handler)
 }
 
 func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
-	registFuncMetadata(router, path, http.MethodPost, handle, cfg)
 	var handler = makeHandlerFunc(cfg, handle)
 	router.POST(path, handler)
 }
 
 func PUT[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
-	registFuncMetadata(router, path, http.MethodPut, handle, cfg)
 	var handler = makeHandlerFunc(cfg, handle)
 	router.PUT(path, handler)
 }
 
 func PATCH[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
-	registFuncMetadata(router, path, http.MethodPatch, handle, cfg)
 	var handler = makeHandlerFunc(cfg, handle)
 	router.PATCH(path, handler)
 }
 
 func DELETE[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
-	registFuncMetadata(router, path, http.MethodDelete, handle, cfg)
 	var handler = makeHandlerFunc(cfg, handle)
 	router.DELETE(path, handler)
 }
@@ -168,16 +151,4 @@ func makeHandlerFunc[Req any, Rsp any](cfg handleConfig, handle func(context.Con
 		}
 	}
 	return handler
-}
-
-func registFuncMetadata[Req any, Rsp any](router gin.IRoutes, path string, method string, handle func(context.Context, *Req) (*Rsp, error), cfg handleConfig) {
-	if !cfg.noPbParse {
-		var req Req
-		var rsp Rsp
-		if r, ok := router.(*gin.Engine); ok {
-			regist(method, r, path, handle, req, rsp, cfg.dataWrap)
-		} else if g, ok := router.(*gin.RouterGroup); ok {
-			regist(method, g, path, handle, req, rsp, cfg.dataWrap)
-		}
-	}
 }

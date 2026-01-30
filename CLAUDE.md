@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ginx is a type-safe HTTP handler wrapper for the Gin web framework, using Go 1.18+ generics. It provides unified request binding (from headers, URI, query, and JSON body), standardized error/response wrapping, and automatic Protobuf schema generation for API documentation.
+ginx is a type-safe HTTP handler wrapper for the Gin web framework, using Go 1.18+ generics. It provides unified request binding (from headers, URI, query, and JSON body) and standardized error/response wrapping.
 
 ## Build & Development Commands
 
@@ -31,9 +31,6 @@ go mod tidy
 
 - **ginx.go** — Entry point. Generic handler functions (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) that accept `func(context.Context, *Req) (*Rsp, error)` signatures. Contains `makeHandlerFunc()` which does multi-source binding (header → URI → query → JSON body) and response wrapping logic.
 - **error.go** — `ErrWrap` type for structured errors with application code, message, and optional HTTP status override. `Error()` constructor and `Extend()` for message formatting.
-- **regist.go** — Reflection-based type introspection. Parses Go structs into Protobuf message definitions, handles nested/recursive types, and registers RPC service endpoints.
-- **doc.go** — Serves auto-generated Protobuf schema at `GET /doc/pb` by compiling all registered types and endpoints.
-- **utils.go** — Path joining and function name extraction helpers.
 
 ## Key Patterns
 
@@ -46,11 +43,11 @@ ginx.GET(router, "/path/:id", func(ctx context.Context, req *MyReq) (*MyRsp, err
 
 **Request structs** use tags for multi-source binding: `uri:"id"`, `header:"X-Token"`, `form:"page"`, `json:"body"`, with validation via `binding:"required"`.
 
-**HandleOption constants** control behavior: `DataWrap`, `NoDataWrap`, `NoPbParse`, `StatusCodeAlwaysOK`.
+**HandleOption constants** control behavior: `DataWrap`, `NoDataWrap`, `StatusCodeAlwaysOK`.
 
 **Error responses** use `ginx.Error(code, msg, optionalHttpCode)`. If `HttpCode` is in 100–599, it's used as the HTTP status; otherwise defaults to 500.
 
-**Global config** functions: `SetDataWrap()`, `SetInvalidArgumentCode()`, `SetInternalServerErrorCode()`, `SetJsonDecoderUseNumber()`, `SetServeDoc()`, `SetNamePkgPrefix()`.
+**Global config** functions: `SetDataWrap()`, `SetInvalidArgumentCode()`, `SetInternalServerErrorCode()`, `SetJsonDecoderUseNumber()`.
 
 ## Language
 
