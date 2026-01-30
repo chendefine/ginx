@@ -2,6 +2,7 @@ package ginx
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -72,34 +73,30 @@ type rspWrap struct {
 	Data any `json:"data,omitempty"`
 }
 
-func GET[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+func register[Req any, Rsp any](router gin.IRoutes, method string, path string, fn func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
 	cfg := parseHandleOptions(opts)
-	var handler = makeHandlerFunc(cfg, handle)
-	router.GET(path, handler)
+	handler := makeHandlerFunc(cfg, fn)
+	router.Handle(method, path, handler)
 }
 
-func POST[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
-	cfg := parseHandleOptions(opts)
-	var handler = makeHandlerFunc(cfg, handle)
-	router.POST(path, handler)
+func GET[Req any, Rsp any](router gin.IRoutes, path string, fn func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	register(router, http.MethodGet, path, fn, opts...)
 }
 
-func PUT[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
-	cfg := parseHandleOptions(opts)
-	var handler = makeHandlerFunc(cfg, handle)
-	router.PUT(path, handler)
+func POST[Req any, Rsp any](router gin.IRoutes, path string, fn func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	register(router, http.MethodPost, path, fn, opts...)
 }
 
-func PATCH[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
-	cfg := parseHandleOptions(opts)
-	var handler = makeHandlerFunc(cfg, handle)
-	router.PATCH(path, handler)
+func PUT[Req any, Rsp any](router gin.IRoutes, path string, fn func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	register(router, http.MethodPut, path, fn, opts...)
 }
 
-func DELETE[Req any, Rsp any](router gin.IRoutes, path string, handle func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
-	cfg := parseHandleOptions(opts)
-	var handler = makeHandlerFunc(cfg, handle)
-	router.DELETE(path, handler)
+func PATCH[Req any, Rsp any](router gin.IRoutes, path string, fn func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	register(router, http.MethodPatch, path, fn, opts...)
+}
+
+func DELETE[Req any, Rsp any](router gin.IRoutes, path string, fn func(context.Context, *Req) (*Rsp, error), opts ...HandleOption) {
+	register(router, http.MethodDelete, path, fn, opts...)
 }
 
 func makeHandlerFunc[Req any, Rsp any](cfg handleConfig, handle func(context.Context, *Req) (*Rsp, error)) func(c *gin.Context) {
@@ -109,7 +106,7 @@ func makeHandlerFunc[Req any, Rsp any](cfg handleConfig, handle func(context.Con
 		c.ShouldBindHeader(&req)
 		c.ShouldBindUri(&req)
 		bindQueryErr := c.ShouldBindQuery(&req)
-		if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
+		if strings.Contains(c.ContentType(), "application/json") {
 			if err := c.ShouldBindJSON(&req); err != nil {
 				if !cfg.alwaysOK {
 					statusCode = http.StatusBadRequest
@@ -131,15 +128,28 @@ func makeHandlerFunc[Req any, Rsp any](cfg handleConfig, handle func(context.Con
 		if c.IsAborted() {
 			return
 		} else if err != nil {
-			if !cfg.alwaysOK {
-				statusCode = http.StatusInternalServerError
-			}
-			if e, ok := err.(*ErrWrap); ok {
-				if e.HttpCode > 100 && e.HttpCode < 600 {
-					statusCode = e.HttpCode
+			var e *ErrWrap
+			var ev ErrWrap
+			if errors.As(err, &e) {
+				if !cfg.alwaysOK {
+					statusCode = http.StatusInternalServerError
+					if e.HttpCode > 100 && e.HttpCode < 600 {
+						statusCode = e.HttpCode
+					}
 				}
 				c.AbortWithStatusJSON(statusCode, e)
+			} else if errors.As(err, &ev) {
+				if !cfg.alwaysOK {
+					statusCode = http.StatusInternalServerError
+					if ev.HttpCode > 100 && ev.HttpCode < 600 {
+						statusCode = ev.HttpCode
+					}
+				}
+				c.AbortWithStatusJSON(statusCode, &ev)
 			} else {
+				if !cfg.alwaysOK {
+					statusCode = http.StatusInternalServerError
+				}
 				c.AbortWithStatusJSON(statusCode, rspWrap{ErrWrap: ErrWrap{Code: defaultInternalServerErrorCode, Msg: err.Error()}})
 			}
 		} else {
