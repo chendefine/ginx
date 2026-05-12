@@ -9,34 +9,7 @@ import (
 {{- end }}
 )
 {{ end }}
-{{- range .Types }}
-{{- if .Enum }}
-type {{ .Enum.TypeName }} {{ .Enum.BaseType }}
-
-const (
-{{- $enumType := .Enum.TypeName }}
-{{- range .Enum.Values }}
-	{{ .Name }} {{ $enumType }} = {{ .Value }}
-{{- end }}
-)
-{{ end -}}
-{{- if .Alias }}
-type {{ .Alias.Name }} = {{ .Alias.TargetType }}
-{{ end -}}
-{{- if .Struct }}
-{{ if .Struct.Comment }}// {{ .Struct.Name }} {{ .Struct.Comment }}
-{{ end -}}
-type {{ .Struct.Name }} struct {
-{{- range .Struct.Embeds }}
-	{{ . }}
-{{- end }}
-{{- range .Struct.Fields }}
-	{{ .Name }} {{ .Type }} {{ renderTags .Tags }}
-{{- end }}
-}
-{{ end -}}
-{{- end }}
-{{- if and .GenerateServer .Operations }}
+{{- if .Operations }}
 type {{ .ServerName }}ServerInterface interface {
 {{- range .Operations }}
 	// {{ .Method }} {{ .GinPath }}

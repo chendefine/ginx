@@ -8,7 +8,26 @@ import (
 	"golang.org/x/tools/imports"
 )
 
+type GenerateResult struct {
+	Types  []byte
+	Server []byte
+	Spec   []byte
+}
+
 func Generate(cfg Config) ([]byte, error) {
+	result, err := GenerateMulti(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.Output.IsMultiFile() {
+		return result.Types, nil
+	}
+
+	return result.Types, nil
+}
+
+func GenerateMulti(cfg Config) (*GenerateResult, error) {
 	loader := openapi3.NewLoader()
 	spec, err := loader.LoadFromFile(cfg.SpecPath)
 	if err != nil {
@@ -54,40 +73,110 @@ func Generate(cfg Config) ([]byte, error) {
 		importsMap["context"] = true
 		importsMap["github.com/chendefine/ginx"] = true
 		importsMap["github.com/gin-gonic/gin"] = true
-		for _, op := range ops {
-			if op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.StringRsp" || op.RspTypeName == "ginx.RedirectRsp" {
-				importsMap["github.com/chendefine/ginx"] = true
-			}
-		}
 	}
 
-	// Apply custom type mappings
 	if len(cfg.TypeMapping) > 0 {
 		for i := range allTypes {
 			applyTypeMapping(&allTypes[i], cfg.TypeMapping, importsMap)
 		}
 	}
 
-	importList := sortedImports(importsMap)
-
 	pkgName := cfg.PackageName
 	if pkgName == "" {
 		pkgName = "api"
 	}
 
-	data := &templateData{
-		PackageName:    pkgName,
-		Imports:        importList,
-		Types:          allTypes,
-		Operations:     ops,
-		GenerateServer: generateServer,
+	skipFmt := cfg.OutputOptions.SkipFmt
+	result := &GenerateResult{}
+
+	if cfg.Output.IsMultiFile() {
+		typesImports := filterTypesImports(importsMap)
+		typesCode, err := executeTypesTemplate(&typesTemplateData{
+			PackageName:       pkgName,
+			GenerateDirective: cfg.GenerateDirective,
+			Imports:           sortedImports(typesImports),
+			Types:             allTypes,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("render types: %w", err)
+		}
+		result.Types, err = formatCode(typesCode, skipFmt)
+		if err != nil {
+			return nil, err
+		}
+
+		if cfg.Output.Server != "" && generateServer && len(ops) > 0 {
+			serverImports := map[string]bool{
+				"context":                      true,
+				"github.com/chendefine/ginx":   true,
+				"github.com/gin-gonic/gin":     true,
+			}
+			for _, op := range ops {
+				if op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.StringRsp" || op.RspTypeName == "ginx.RedirectRsp" {
+					serverImports["github.com/chendefine/ginx"] = true
+				}
+			}
+			serverCode, err := executeServerTemplate(&serverTemplateData{
+				PackageName:       pkgName,
+				GenerateDirective: cfg.GenerateDirective,
+				Imports:           sortedImports(serverImports),
+				Operations:        ops,
+				ServerName:        cfg.GetServerName(),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("render server: %w", err)
+			}
+			result.Server, err = formatCode(serverCode, skipFmt)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if cfg.Output.Spec != "" {
+			specBase64, err := CompressSpec(cfg.SpecPath)
+			if err != nil {
+				return nil, err
+			}
+			specCode, err := executeSpecTemplate(&specTemplateData{
+				PackageName:       pkgName,
+				GenerateDirective: cfg.GenerateDirective,
+				SpecBase64:        specBase64,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("render spec: %w", err)
+			}
+			result.Spec, err = formatCode(specCode, skipFmt)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		allImports := sortedImports(importsMap)
+		code, err := executeCombinedTemplate(&combinedTemplateData{
+			PackageName:       pkgName,
+			GenerateDirective: cfg.GenerateDirective,
+			Imports:           allImports,
+			Types:             allTypes,
+			Operations:        ops,
+			GenerateServer:    generateServer,
+			ServerName:        cfg.GetServerName(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("render template: %w", err)
+		}
+		result.Types, err = formatCode(code, skipFmt)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	code, err := executeTemplate(data)
-	if err != nil {
-		return nil, fmt.Errorf("render template: %w", err)
-	}
+	return result, nil
+}
 
+func formatCode(code string, skipFmt bool) ([]byte, error) {
+	if skipFmt {
+		return []byte(code), nil
+	}
 	formatted, err := imports.Process("generated.go", []byte(code), &imports.Options{
 		Comments:  true,
 		TabIndent: true,
@@ -96,8 +185,22 @@ func Generate(cfg Config) ([]byte, error) {
 	if err != nil {
 		return []byte(code), nil
 	}
-
 	return formatted, nil
+}
+
+func filterTypesImports(all map[string]bool) map[string]bool {
+	serverOnly := map[string]bool{
+		"context":                    true,
+		"github.com/chendefine/ginx": true,
+		"github.com/gin-gonic/gin":   true,
+	}
+	result := make(map[string]bool)
+	for k := range all {
+		if !serverOnly[k] {
+			result[k] = true
+		}
+	}
+	return result
 }
 
 func applyTypeMapping(td *TypeDef, mapping map[string]string, imports map[string]bool) {

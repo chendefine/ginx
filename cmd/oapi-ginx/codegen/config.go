@@ -8,21 +8,100 @@ import (
 )
 
 type Config struct {
-	PackageName    string            `yaml:"package"`
-	SpecPath       string            `yaml:"spec"`
-	OutputPath     string            `yaml:"output"`
-	GenerateServer *bool             `yaml:"generate_server"`
+	PackageName string       `yaml:"package"`
+	SpecPath    string       `yaml:"spec"`
+	Output      OutputConfig `yaml:"output"`
+	ServerName  string       `yaml:"server_name"`
+
+	GenerateDirective string `yaml:"generate_directive"`
 
 	IncludeTags []string          `yaml:"include_tags"`
 	ExcludeTags []string          `yaml:"exclude_tags"`
 	TypeMapping map[string]string `yaml:"type_mapping"`
+
+	OutputOptions OutputOptions `yaml:"output_options"`
+
+	// Deprecated: use Output and OutputOptions instead
+	GenerateServer *bool `yaml:"generate_server"`
+}
+
+type OutputConfig struct {
+	Single string
+	Types  string
+	Server string
+	Spec   string
+}
+
+type OutputOptions struct {
+	SkipFmt        bool  `yaml:"skip_fmt"`
+	GenerateServer *bool `yaml:"generate_server"`
+}
+
+func (o *OutputConfig) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		o.Single = value.Value
+		return nil
+	}
+	if value.Kind == yaml.MappingNode {
+		var m struct {
+			Types  string `yaml:"types"`
+			Server string `yaml:"server"`
+			Spec   string `yaml:"spec"`
+		}
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		o.Types = m.Types
+		o.Server = m.Server
+		o.Spec = m.Spec
+		return nil
+	}
+	return fmt.Errorf("output must be a string or a map")
+}
+
+func (o OutputConfig) MarshalYAML() (any, error) {
+	if o.Single != "" {
+		return o.Single, nil
+	}
+	m := make(map[string]string)
+	if o.Types != "" {
+		m["types"] = o.Types
+	}
+	if o.Server != "" {
+		m["server"] = o.Server
+	}
+	if o.Spec != "" {
+		m["spec"] = o.Spec
+	}
+	return m, nil
+}
+
+func (o *OutputConfig) IsMultiFile() bool {
+	return o.Types != "" || o.Server != "" || o.Spec != ""
 }
 
 func (c *Config) ShouldGenerateServer() bool {
-	if c.GenerateServer == nil {
-		return true
+	if c.OutputOptions.GenerateServer != nil {
+		return *c.OutputOptions.GenerateServer
 	}
-	return *c.GenerateServer
+	if c.GenerateServer != nil {
+		return *c.GenerateServer
+	}
+	return true
+}
+
+func (c *Config) GetServerName() string {
+	if c.ServerName == "" {
+		return ""
+	}
+	return ToCamelCase(c.ServerName)
+}
+
+func (c *Config) GetOutputPath() string {
+	if c.Output.Single != "" {
+		return c.Output.Single
+	}
+	return ""
 }
 
 func LoadConfig(path string) (*Config, error) {

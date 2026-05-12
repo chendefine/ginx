@@ -32,15 +32,62 @@ func renderTags(tags []Tag) string {
 	return "`" + strings.Join(parts, " ") + "`"
 }
 
-type templateData struct {
-	PackageName    string
-	Imports        []string
-	Types          []TypeDef
-	Operations     []OperationDef
-	GenerateServer bool
+type typesTemplateData struct {
+	PackageName       string
+	GenerateDirective string
+	Imports           []string
+	Types             []TypeDef
 }
 
-func executeTemplate(data *templateData) (string, error) {
+type serverTemplateData struct {
+	PackageName       string
+	GenerateDirective string
+	Imports           []string
+	Operations        []OperationDef
+	ServerName        string
+}
+
+type specTemplateData struct {
+	PackageName       string
+	GenerateDirective string
+	SpecBase64        string
+}
+
+type combinedTemplateData struct {
+	PackageName       string
+	GenerateDirective string
+	Imports           []string
+	Types             []TypeDef
+	Operations        []OperationDef
+	GenerateServer    bool
+	ServerName        string
+}
+
+func executeTypesTemplate(data *typesTemplateData) (string, error) {
+	var buf strings.Builder
+	if err := tmpl.ExecuteTemplate(&buf, "types.go.tmpl", data); err != nil {
+		return "", fmt.Errorf("execute types template: %w", err)
+	}
+	return buf.String(), nil
+}
+
+func executeServerTemplate(data *serverTemplateData) (string, error) {
+	var buf strings.Builder
+	if err := tmpl.ExecuteTemplate(&buf, "server.go.tmpl", data); err != nil {
+		return "", fmt.Errorf("execute server template: %w", err)
+	}
+	return buf.String(), nil
+}
+
+func executeSpecTemplate(data *specTemplateData) (string, error) {
+	var buf strings.Builder
+	if err := tmpl.ExecuteTemplate(&buf, "spec.go.tmpl", data); err != nil {
+		return "", fmt.Errorf("execute spec template: %w", err)
+	}
+	return buf.String(), nil
+}
+
+func executeCombinedTemplate(data *combinedTemplateData) (string, error) {
 	var buf strings.Builder
 	if err := tmpl.ExecuteTemplate(&buf, "file.go.tmpl", data); err != nil {
 		return "", fmt.Errorf("execute template: %w", err)
