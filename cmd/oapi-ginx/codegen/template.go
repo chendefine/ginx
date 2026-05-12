@@ -1,0 +1,45 @@
+package codegen
+
+import (
+	"embed"
+	"fmt"
+	"strings"
+	"text/template"
+)
+
+//go:embed templates/*.tmpl
+var templateFS embed.FS
+
+var tmpl *template.Template
+
+func init() {
+	funcMap := template.FuncMap{
+		"renderTags": renderTags,
+	}
+	tmpl = template.Must(template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.tmpl"))
+}
+
+func renderTags(tags []Tag) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, t := range tags {
+		parts = append(parts, fmt.Sprintf(`%s:"%s"`, t.Key, t.Value))
+	}
+	return "`" + strings.Join(parts, " ") + "`"
+}
+
+type templateData struct {
+	PackageName string
+	Imports     []string
+	Types       []TypeDef
+}
+
+func executeTemplate(data *templateData) (string, error) {
+	var buf strings.Builder
+	if err := tmpl.ExecuteTemplate(&buf, "file.go.tmpl", data); err != nil {
+		return "", fmt.Errorf("execute template: %w", err)
+	}
+	return buf.String(), nil
+}
