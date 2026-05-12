@@ -34,3 +34,25 @@ type {{ .Struct.Name }} struct {
 }
 {{ end -}}
 {{- end }}
+{{- if and .GenerateServer .Operations }}
+type ServerInterface interface {
+{{- range .Operations }}
+	// {{ .Method }} {{ .GinPath }}
+{{- if .IsSSE }}
+	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req, send ginx.Sender) error
+{{- else }}
+	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req) (*{{ .RspTypeName }}, error)
+{{- end }}
+{{- end }}
+}
+
+func RegisterRoutes(r gin.IRoutes, s ServerInterface, opts ...ginx.RouteOption) {
+{{- range .Operations }}
+{{- if .IsSSE }}
+	ginx.SSE(r, "{{ .GinPath }}", s.{{ .Name }}, opts...)
+{{- else }}
+	ginx.{{ .Method | title }}(r, "{{ .GinPath }}", s.{{ .Name }}, opts...)
+{{- end }}
+{{- end }}
+}
+{{- end }}

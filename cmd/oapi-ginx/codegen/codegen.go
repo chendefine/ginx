@@ -37,12 +37,27 @@ func Generate(cfg Config) ([]byte, error) {
 	ops, extraTypes := ExtractOperations(spec, &cfg, importsMap, seen)
 	allTypes = append(allTypes, extraTypes...)
 
+	generateServer := cfg.ShouldGenerateServer()
+
 	for _, op := range ops {
-		if op.Request != nil && (len(op.Request.Fields) > 0 || len(op.Request.Embeds) > 0) {
-			allTypes = append(allTypes, TypeDef{Struct: op.Request})
+		if op.Request != nil {
+			if generateServer || len(op.Request.Fields) > 0 || len(op.Request.Embeds) > 0 {
+				allTypes = append(allTypes, TypeDef{Struct: op.Request})
+			}
 		}
 		if op.Response != nil {
 			allTypes = append(allTypes, *op.Response)
+		}
+	}
+
+	if generateServer && len(ops) > 0 {
+		importsMap["context"] = true
+		importsMap["github.com/chendefine/ginx"] = true
+		importsMap["github.com/gin-gonic/gin"] = true
+		for _, op := range ops {
+			if op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.StringRsp" || op.RspTypeName == "ginx.RedirectRsp" {
+				importsMap["github.com/chendefine/ginx"] = true
+			}
 		}
 	}
 
@@ -61,9 +76,11 @@ func Generate(cfg Config) ([]byte, error) {
 	}
 
 	data := &templateData{
-		PackageName: pkgName,
-		Imports:     importList,
-		Types:       allTypes,
+		PackageName:    pkgName,
+		Imports:        importList,
+		Types:          allTypes,
+		Operations:     ops,
+		GenerateServer: generateServer,
 	}
 
 	code, err := executeTemplate(data)

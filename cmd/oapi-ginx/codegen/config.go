@@ -8,13 +8,21 @@ import (
 )
 
 type Config struct {
-	PackageName string `yaml:"package"`
-	SpecPath    string `yaml:"spec"`
-	OutputPath  string `yaml:"output"`
+	PackageName    string            `yaml:"package"`
+	SpecPath       string            `yaml:"spec"`
+	OutputPath     string            `yaml:"output"`
+	GenerateServer *bool             `yaml:"generate_server"`
 
 	IncludeTags []string          `yaml:"include_tags"`
 	ExcludeTags []string          `yaml:"exclude_tags"`
 	TypeMapping map[string]string `yaml:"type_mapping"`
+}
+
+func (c *Config) ShouldGenerateServer() bool {
+	if c.GenerateServer == nil {
+		return true
+	}
+	return *c.GenerateServer
 }
 
 func LoadConfig(path string) (*Config, error) {

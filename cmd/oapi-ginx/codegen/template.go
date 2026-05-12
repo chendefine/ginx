@@ -15,6 +15,8 @@ var tmpl *template.Template
 func init() {
 	funcMap := template.FuncMap{
 		"renderTags": renderTags,
+		"title":      strings.Title,
+		"lower":      strings.ToLower,
 	}
 	tmpl = template.Must(template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.tmpl"))
 }
@@ -31,9 +33,11 @@ func renderTags(tags []Tag) string {
 }
 
 type templateData struct {
-	PackageName string
-	Imports     []string
-	Types       []TypeDef
+	PackageName    string
+	Imports        []string
+	Types          []TypeDef
+	Operations     []OperationDef
+	GenerateServer bool
 }
 
 func executeTemplate(data *templateData) (string, error) {

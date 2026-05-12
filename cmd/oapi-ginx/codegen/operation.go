@@ -8,11 +8,14 @@ import (
 )
 
 type OperationDef struct {
-	Name     string
-	Method   string
-	Path     string
-	Request  *StructDef
-	Response *TypeDef
+	Name        string
+	Method      string
+	Path        string
+	GinPath     string
+	IsSSE       bool
+	RspTypeName string
+	Request     *StructDef
+	Response    *TypeDef
 }
 
 func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, seen map[string]bool) ([]OperationDef, []TypeDef) {
@@ -35,15 +38,26 @@ func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, s
 			reqStruct, reqExtra := buildRequestStruct(opName, pathItem, mo.op, imports, seen)
 			extraTypes = append(extraTypes, reqExtra...)
 
-			rspDef, rspExtra := buildResponseType(opName, mo.op, imports, seen)
-			extraTypes = append(extraTypes, rspExtra...)
+			sse := isSSEOperation(mo.op)
+			rspTypeName := "struct{}"
+
+			var rspDef *TypeDef
+			var rspExtra []TypeDef
+			if !sse {
+				rspTypeName = resolveResponseTypeName(opName, mo.op)
+				rspDef, rspExtra = buildResponseType(opName, mo.op, imports, seen)
+				extraTypes = append(extraTypes, rspExtra...)
+			}
 
 			ops = append(ops, OperationDef{
-				Name:     opName,
-				Method:   mo.method,
-				Path:     path,
-				Request:  reqStruct,
-				Response: rspDef,
+				Name:        opName,
+				Method:      mo.method,
+				Path:        path,
+				GinPath:     swaggerPathToGin(path),
+				IsSSE:       sse,
+				RspTypeName: rspTypeName,
+				Request:     reqStruct,
+				Response:    rspDef,
 			})
 		}
 	}
@@ -357,4 +371,113 @@ func sortedPaths(m map[string]*openapi3.PathItem) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func swaggerPathToGin(path string) string {
+	var result []byte
+	i := 0
+	for i < len(path) {
+		if path[i] == '{' {
+			result = append(result, ':')
+			i++
+			for i < len(path) && path[i] != '}' {
+				result = append(result, path[i])
+				i++
+			}
+			if i < len(path) {
+				i++ // skip '}'
+			}
+		} else {
+			result = append(result, path[i])
+			i++
+		}
+	}
+	return string(result)
+}
+
+func isSSEOperation(op *openapi3.Operation) bool {
+	if v, ok := op.Extensions["x-ginx-sse"]; ok {
+		if b, ok := v.(bool); ok && b {
+			return true
+		}
+	}
+	if op.Responses == nil {
+		return false
+	}
+	for _, code := range []int{200, 201} {
+		r := op.Responses.Status(code)
+		if r == nil || r.Value == nil {
+			continue
+		}
+		if r.Value.Content.Get("text/event-stream") != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveResponseTypeName(opName string, op *openapi3.Operation) string {
+	if op.Responses == nil {
+		return "struct{}"
+	}
+
+	// Check for 3xx redirect (no 2xx)
+	has2xx := false
+	has3xx := false
+	for code := 200; code < 300; code++ {
+		if op.Responses.Status(code) != nil {
+			has2xx = true
+			break
+		}
+	}
+	if !has2xx {
+		for code := 300; code < 400; code++ {
+			if op.Responses.Status(code) != nil {
+				has3xx = true
+				break
+			}
+		}
+		if has3xx {
+			return "ginx.RedirectRsp"
+		}
+	}
+
+	var responseRef *openapi3.ResponseRef
+	for _, code := range []int{200, 201} {
+		if r := op.Responses.Status(code); r != nil {
+			responseRef = r
+			break
+		}
+	}
+
+	// 204 No Content
+	if responseRef == nil {
+		return "struct{}"
+	}
+	if responseRef.Value == nil {
+		return "struct{}"
+	}
+
+	content := responseRef.Value.Content
+	if content == nil || len(content) == 0 {
+		return "struct{}"
+	}
+
+	// application/octet-stream → file download
+	if content.Get("application/octet-stream") != nil {
+		return "ginx.FileRsp"
+	}
+
+	// text/plain → string response
+	if content.Get("text/plain") != nil && content.Get("application/json") == nil {
+		return "ginx.StringRsp"
+	}
+
+	// application/json → use the generated Rsp type
+	mt := content.Get("application/json")
+	if mt == nil || mt.Schema == nil {
+		return "struct{}"
+	}
+
+	return opName + "Rsp"
 }
