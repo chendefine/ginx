@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 )
@@ -463,21 +464,41 @@ func resolveResponseTypeName(opName string, op *openapi3.Operation) string {
 		return "struct{}"
 	}
 
-	// application/octet-stream → file download
-	if content.Get("application/octet-stream") != nil {
-		return "ginx.FileRsp"
+	// application/json takes priority → use the generated Rsp type
+	if mt := content.Get("application/json"); mt != nil && mt.Schema != nil {
+		return opName + "Rsp"
 	}
 
-	// text/plain → string response
-	if content.Get("text/plain") != nil && content.Get("application/json") == nil {
-		return "ginx.StringRsp"
+	// check all content types for binary/text classification
+	for contentType := range content {
+		if isBinaryContentType(contentType) {
+			return "ginx.FileRsp"
+		}
+	}
+	for contentType := range content {
+		if isTextContentType(contentType) {
+			return "ginx.StringRsp"
+		}
 	}
 
-	// application/json → use the generated Rsp type
-	mt := content.Get("application/json")
-	if mt == nil || mt.Schema == nil {
-		return "struct{}"
-	}
+	return "struct{}"
+}
 
-	return opName + "Rsp"
+func isBinaryContentType(ct string) bool {
+	switch ct {
+	case "application/octet-stream", "application/pdf", "application/zip",
+		"application/gzip", "application/x-tar", "application/x-gzip":
+		return true
+	}
+	if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") {
+		return true
+	}
+	if strings.HasPrefix(ct, "application/") && ct != "application/json" && ct != "application/xml" {
+		return true
+	}
+	return false
+}
+
+func isTextContentType(ct string) bool {
+	return strings.HasPrefix(ct, "text/")
 }

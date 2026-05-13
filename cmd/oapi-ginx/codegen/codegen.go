@@ -159,6 +159,10 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 				"github.com/chendefine/ginx": true,
 				"resty.dev/v3":               true,
 			}
+			if hasSSEOperations(ops) {
+				clientImports["strings"] = true
+				clientImports["net/url"] = true
+			}
 			clientCode, err := executeClientTemplate(&clientTemplateData{
 				PackageName:       pkgName,
 				GenerateDirective: cfg.GenerateDirective,
@@ -181,6 +185,10 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 			importsMap["fmt"] = true
 			importsMap["github.com/chendefine/ginx"] = true
 			importsMap["resty.dev/v3"] = true
+			if hasSSEOperations(ops) {
+				importsMap["strings"] = true
+				importsMap["net/url"] = true
+			}
 			allImports = sortedImports(importsMap)
 		}
 		code, err := executeCombinedTemplate(&combinedTemplateData{
@@ -299,4 +307,13 @@ func sortedImports(m map[string]bool) []string {
 	}
 	sort.Strings(list)
 	return list
+}
+
+func hasSSEOperations(ops []OperationDef) bool {
+	for _, op := range ops {
+		if op.IsSSE {
+			return true
+		}
+	}
+	return false
 }

@@ -33,6 +33,7 @@ func init() {
 		"needsResult":        needsResult,
 		"isFileRsp":          isFileRsp,
 		"isStringRsp":        isStringRsp,
+		"hasSSEOps":          hasSSEOps,
 	}
 	tmpl = template.Must(template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.tmpl"))
 }
@@ -187,9 +188,6 @@ func clientRspSignature(op OperationDef) string {
 }
 
 func skipForClient(op OperationDef) bool {
-	if op.IsSSE {
-		return true
-	}
 	if op.Request != nil {
 		for _, f := range op.Request.Fields {
 			if strings.Contains(f.Type, "multipart.FileHeader") {
@@ -215,6 +213,15 @@ func isFileRsp(op OperationDef) bool {
 
 func isStringRsp(op OperationDef) bool {
 	return op.RspTypeName == "ginx.StringRsp"
+}
+
+func hasSSEOps(ops []OperationDef) bool {
+	for _, op := range ops {
+		if op.IsSSE {
+			return true
+		}
+	}
+	return false
 }
 
 func zeroReturn(op OperationDef) string {
