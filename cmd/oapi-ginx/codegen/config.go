@@ -29,12 +29,14 @@ type OutputConfig struct {
 	Single string
 	Types  string
 	Server string
+	Client string
 	Spec   string
 }
 
 type OutputOptions struct {
 	SkipFmt        bool  `yaml:"skip_fmt"`
 	GenerateServer *bool `yaml:"generate_server"`
+	GenerateClient *bool `yaml:"generate_client"`
 }
 
 func (o *OutputConfig) UnmarshalYAML(value *yaml.Node) error {
@@ -46,6 +48,7 @@ func (o *OutputConfig) UnmarshalYAML(value *yaml.Node) error {
 		var m struct {
 			Types  string `yaml:"types"`
 			Server string `yaml:"server"`
+			Client string `yaml:"client"`
 			Spec   string `yaml:"spec"`
 		}
 		if err := value.Decode(&m); err != nil {
@@ -53,6 +56,7 @@ func (o *OutputConfig) UnmarshalYAML(value *yaml.Node) error {
 		}
 		o.Types = m.Types
 		o.Server = m.Server
+		o.Client = m.Client
 		o.Spec = m.Spec
 		return nil
 	}
@@ -70,6 +74,9 @@ func (o OutputConfig) MarshalYAML() (any, error) {
 	if o.Server != "" {
 		m["server"] = o.Server
 	}
+	if o.Client != "" {
+		m["client"] = o.Client
+	}
 	if o.Spec != "" {
 		m["spec"] = o.Spec
 	}
@@ -77,7 +84,7 @@ func (o OutputConfig) MarshalYAML() (any, error) {
 }
 
 func (o *OutputConfig) IsMultiFile() bool {
-	return o.Types != "" || o.Server != "" || o.Spec != ""
+	return o.Types != "" || o.Server != "" || o.Client != "" || o.Spec != ""
 }
 
 func (c *Config) ShouldGenerateServer() bool {
@@ -88,6 +95,13 @@ func (c *Config) ShouldGenerateServer() bool {
 		return *c.GenerateServer
 	}
 	return true
+}
+
+func (c *Config) ShouldGenerateClient() bool {
+	if c.OutputOptions.GenerateClient != nil {
+		return *c.OutputOptions.GenerateClient
+	}
+	return c.Output.Client != ""
 }
 
 func (c *Config) GetServerName() string {

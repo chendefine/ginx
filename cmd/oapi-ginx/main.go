@@ -20,6 +20,7 @@ spec: ./openapi.yaml
 output:
   types: types.gen.go
   server: server.gen.go
+  # client: client.gen.go  # uncomment to generate HTTP client SDK
   # spec: spec.gen.go  # uncomment to embed spec
 
 # Server interface name prefix (e.g. "pet_store" -> PetStoreServerInterface / RegisterPetStoreRoutes)
@@ -135,6 +136,12 @@ func main() {
 		}
 		if cfg.Output.Server != "" && result.Server != nil {
 			if err := writeFile(cfg.Output.Server, result.Server); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+		}
+		if cfg.Output.Client != "" && result.Client != nil {
+			if err := writeFile(cfg.Output.Client, result.Client); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}

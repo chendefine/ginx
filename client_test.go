@@ -1,0 +1,134 @@
+package ginx
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestParseResponse_EmptyBody_Success(t *testing.T) {
+	err := ParseResponse(200, nil, nil)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestParseResponse_EmptyBody_HTTPError(t *testing.T) {
+	err := ParseResponse(500, nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var e *ErrWrap
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *ErrWrap, got %T", err)
+	}
+	if e.HttpCode != 500 {
+		t.Errorf("expected HttpCode=500, got %d", e.HttpCode)
+	}
+}
+
+func TestParseResponse_DataWrap_Success(t *testing.T) {
+	body := []byte(`{"code":0,"msg":"ok","data":{"name":"test"}}`)
+	var result struct {
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result.Name != "test" {
+		t.Errorf("expected name=test, got %q", result.Name)
+	}
+}
+
+func TestParseResponse_DataWrap_BusinessError(t *testing.T) {
+	body := []byte(`{"code":1001,"msg":"not found"}`)
+	err := ParseResponse(200, body, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var e *ErrWrap
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *ErrWrap, got %T", err)
+	}
+	if e.Code != 1001 {
+		t.Errorf("expected Code=1001, got %d", e.Code)
+	}
+	if e.Msg != "not found" {
+		t.Errorf("expected Msg='not found', got %q", e.Msg)
+	}
+	if e.HttpCode != 200 {
+		t.Errorf("expected HttpCode=200, got %d", e.HttpCode)
+	}
+}
+
+func TestParseResponse_DataWrap_BusinessError_HTTP500(t *testing.T) {
+	body := []byte(`{"code":2000,"msg":"internal error"}`)
+	err := ParseResponse(500, body, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var e *ErrWrap
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *ErrWrap, got %T", err)
+	}
+	if e.Code != 2000 {
+		t.Errorf("expected Code=2000, got %d", e.Code)
+	}
+	if e.HttpCode != 500 {
+		t.Errorf("expected HttpCode=500, got %d", e.HttpCode)
+	}
+}
+
+func TestParseResponse_NoDataWrap_Success(t *testing.T) {
+	body := []byte(`{"name":"direct"}`)
+	var result struct {
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result.Name != "direct" {
+		t.Errorf("expected name=direct, got %q", result.Name)
+	}
+}
+
+func TestParseResponse_NoDataWrap_HTTPError(t *testing.T) {
+	body := []byte(`some error text`)
+	err := ParseResponse(502, body, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var e *ErrWrap
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *ErrWrap, got %T", err)
+	}
+	if e.HttpCode != 502 {
+		t.Errorf("expected HttpCode=502, got %d", e.HttpCode)
+	}
+	if e.Msg != "some error text" {
+		t.Errorf("expected Msg='some error text', got %q", e.Msg)
+	}
+}
+
+func TestParseResponse_DataWrap_NilResult(t *testing.T) {
+	body := []byte(`{"code":0,"msg":"ok","data":{"id":1}}`)
+	err := ParseResponse(200, body, nil)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
+func TestParseResponse_ArrayResponse(t *testing.T) {
+	body := []byte(`{"code":0,"msg":"ok","data":[{"name":"a"},{"name":"b"}]}`)
+	var result []struct {
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if len(result) != 2 {
+		t.Errorf("expected 2 items, got %d", len(result))
+	}
+}

@@ -52,6 +52,7 @@ output: api.gen.go
 output:
   types: types.gen.go      # 类型定义文件
   server: server.gen.go    # 服务接口和路由注册文件
+  client: client.gen.go    # HTTP 客户端 SDK 文件（可选）
   spec: spec.gen.go        # 内嵌 spec 文件（可选）
 
 # go:generate 指令（添加到生成文件头部）
@@ -74,6 +75,7 @@ type_mapping:
 output_options:
   skip_fmt: false           # 跳过 goimports 格式化
   generate_server: true     # 是否生成 ServerInterface 和 RegisterRoutes
+  generate_client: true     # 是否生成 HTTP 客户端 SDK
 ```
 
 ### 输出模式
@@ -83,6 +85,7 @@ output_options:
 **多文件模式**：将生成代码拆分为独立文件：
 - `types` — 所有结构体、枚举、类型别名
 - `server` — `ServerInterface` 接口和 `RegisterRoutes` 函数
+- `client` — HTTP 客户端 SDK（基于 resty.dev/v3）
 - `spec` — 内嵌压缩后的 OpenAPI spec，提供 `GetSwaggerSpec()` 函数
 
 ## OpenAPI 到 Go 的类型映射
@@ -263,6 +266,141 @@ ListEvents(ctx context.Context, req *ListEventsReq, send ginx.Sender) error
 路由注册使用 `ginx.SSE`：
 ```go
 ginx.SSE(r, "/events", s.ListEvents, opts...)
+```
+
+## HTTP 客户端 SDK 生成
+
+配置 `output.client` 或 `output_options.generate_client: true` 后，oapi-ginx 会为每个 operation 生成类型安全的 HTTP 客户端方法，基于 [resty.dev/v3](https://resty.dev)。
+
+### 配置
+
+```yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go    # 指定路径即启用
+
+# 或在单文件模式下通过 output_options 启用
+output: api.gen.go
+output_options:
+  generate_client: true
+```
+
+### 生成结构
+
+```go
+// ClientOption 用于配置底层 resty 客户端
+type ClientOption func(*resty.Client)
+
+// ClientInterface 定义所有 API 方法
+type ClientInterface interface {
+    ListPets(ctx context.Context, req *ListPetsReq) (*ListPetsRsp, error)
+    CreatePet(ctx context.Context, req *CreatePetReq) (*CreatePetRsp, error)
+    // ...
+}
+
+// Client 实现 ClientInterface
+type Client struct {
+    client *resty.Client
+}
+
+// NewClient 创建客户端实例
+func NewClient(baseURL string, opts ...ClientOption) *Client
+```
+
+### 使用示例
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "resty.dev/v3"
+    "your/project/api"
+)
+
+func main() {
+    client := api.NewClient("http://localhost:8080",
+        func(c *resty.Client) {
+            c.SetTimeout(10 * time.Second)
+            c.SetAuthToken("my-token")
+        },
+    )
+
+    // 调用 API
+    rsp, err := client.ListPets(context.Background(), &api.ListPetsReq{
+        Limit: ptr(int32(10)),
+    })
+    if err != nil {
+        // err 可能是 *ginx.ErrWrap（API 业务错误）或网络错误
+        fmt.Println("error:", err)
+        return
+    }
+    fmt.Println("pets:", rsp)
+}
+```
+
+### 参数映射
+
+生成的客户端方法复用服务端的 `Req` 结构体，根据 struct tag 自动分发参数：
+
+| struct tag | 客户端行为 |
+|---|---|
+| `uri:"name"` | `r.SetPathParam("name", value)` |
+| `form:"name"` | `r.SetQueryParam("name", value)` |
+| `header:"name"` | `r.SetHeader("name", value)` |
+| `json:"name"` | 作为 JSON body 发送 |
+| embed（内嵌类型） | `r.SetBody(&req.EmbedType)` |
+
+可选参数（指针类型）在值为 nil 时自动跳过。非 string 类型参数自动使用 `fmt.Sprintf` 转换。
+
+### 响应处理
+
+| 服务端响应类型 | 客户端返回值 |
+|---|---|
+| JSON 结构体 | `(*RspType, error)` |
+| `ginx.FileRsp` | `([]byte, error)` |
+| `ginx.StringRsp` | `(string, error)` |
+| `ginx.RedirectRsp` | `error` |
+| `struct{}`（204） | `error` |
+
+### 错误处理
+
+当服务端返回 4xx/5xx 时，客户端返回 `*ginx.ErrWrap` 错误，其中 `HttpCode` 为实际 HTTP 状态码：
+
+```go
+rsp, err := client.GetPet(ctx, &api.GetPetReq{PetID: 999})
+if err != nil {
+    var apiErr *ginx.ErrWrap
+    if errors.As(err, &apiErr) {
+        fmt.Printf("业务错误 code=%d msg=%s http=%d\n",
+            apiErr.Code, apiErr.Msg, apiErr.HttpCode)
+    }
+}
+```
+
+### 跳过的 Operation
+
+以下类型的 operation 不会生成客户端方法：
+- SSE（Server-Sent Events）— 流式推送需要不同的调用模式
+- multipart/form-data 文件上传 — 需要特殊处理
+
+### server_name 前缀
+
+与服务端接口一样，`server_name` 配置会影响客户端命名：
+
+```yaml
+server_name: pet_store
+```
+
+生成：
+```go
+type PetStoreClientInterface interface { ... }
+type PetStoreClient struct { ... }
+func NewPetStoreClient(baseURL string, opts ...PetStoreClientOption) *PetStoreClient
 ```
 
 ## 验证规则自动生成

@@ -11,6 +11,7 @@ import (
 type GenerateResult struct {
 	Types  []byte
 	Server []byte
+	Client []byte
 	Spec   []byte
 }
 
@@ -150,8 +151,38 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 				return nil, err
 			}
 		}
+
+		if cfg.Output.Client != "" && cfg.ShouldGenerateClient() && len(ops) > 0 {
+			clientImports := map[string]bool{
+				"context":                    true,
+				"fmt":                        true,
+				"github.com/chendefine/ginx": true,
+				"resty.dev/v3":               true,
+			}
+			clientCode, err := executeClientTemplate(&clientTemplateData{
+				PackageName:       pkgName,
+				GenerateDirective: cfg.GenerateDirective,
+				Imports:           sortedImports(clientImports),
+				Operations:        ops,
+				ServerName:        cfg.GetServerName(),
+			})
+			if err != nil {
+				return nil, fmt.Errorf("render client: %w", err)
+			}
+			result.Client, err = formatCode(clientCode, skipFmt)
+			if err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		allImports := sortedImports(importsMap)
+		generateClient := cfg.ShouldGenerateClient()
+		if generateClient && len(ops) > 0 {
+			importsMap["fmt"] = true
+			importsMap["github.com/chendefine/ginx"] = true
+			importsMap["resty.dev/v3"] = true
+			allImports = sortedImports(importsMap)
+		}
 		code, err := executeCombinedTemplate(&combinedTemplateData{
 			PackageName:       pkgName,
 			GenerateDirective: cfg.GenerateDirective,
@@ -159,6 +190,7 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 			Types:             allTypes,
 			Operations:        ops,
 			GenerateServer:    generateServer,
+			GenerateClient:    generateClient,
 			ServerName:        cfg.GetServerName(),
 		})
 		if err != nil {

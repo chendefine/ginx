@@ -58,3 +58,94 @@ func Register{{ .ServerName }}Routes(r gin.IRoutes, s {{ .ServerName }}ServerInt
 {{- end }}
 }
 {{- end }}
+{{- if and .GenerateClient .Operations }}
+
+type {{ .ServerName }}ClientOption func(*resty.Client)
+
+type {{ .ServerName }}ClientInterface interface {
+{{- range .Operations }}
+{{- if not (skipForClient .) }}
+	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req) {{ clientRspSignature . }}
+{{- end }}
+{{- end }}
+}
+
+type {{ .ServerName }}Client struct {
+	client *resty.Client
+}
+
+func New{{ .ServerName }}Client(baseURL string, opts ...{{ .ServerName }}ClientOption) *{{ .ServerName }}Client {
+	c := resty.New().SetBaseURL(baseURL)
+	for _, opt := range opts {
+		opt(c)
+	}
+	return &{{ .ServerName }}Client{client: c}
+}
+{{ range .Operations }}
+{{- if not (skipForClient .) }}
+func (c *{{ $.ServerName }}Client) {{ .Name }}(ctx context.Context, req *{{ .Name }}Req) {{ clientRspSignature . }} {
+	r := c.client.R().SetContext(ctx)
+{{ range pathParams .Request }}
+	r.SetPathParam("{{ tagValue . "uri" }}", {{ fmtValue . }})
+{{- end }}
+{{ range queryParams .Request }}
+{{- if isPointerType . }}
+	if req.{{ .Name }} != nil {
+		r.SetQueryParam("{{ tagValue . "form" }}", {{ fmtDerefValue . }})
+	}
+{{- else }}
+	r.SetQueryParam("{{ tagValue . "form" }}", {{ fmtValue . }})
+{{- end }}
+{{- end }}
+{{ range headerParams .Request }}
+{{- if isPointerType . }}
+	if req.{{ .Name }} != nil {
+		r.SetHeader("{{ tagValue . "header" }}", {{ fmtDerefValue . }})
+	}
+{{- else }}
+	r.SetHeader("{{ tagValue . "header" }}", {{ fmtValue . }})
+{{- end }}
+{{- end }}
+{{- if .Request.Embeds }}
+	r.SetBody(&req.{{ index .Request.Embeds 0 }})
+{{- else }}
+{{- $bodyFields := bodyFields .Request }}
+{{- $hasParams := or (pathParams .Request) (queryParams .Request) (headerParams .Request) }}
+{{- if and $bodyFields (not $hasParams) }}
+	r.SetBody(req)
+{{- else if $bodyFields }}
+	r.SetBody(map[string]any{
+{{- range $bodyFields }}
+		"{{ tagValue . "json" }}": req.{{ .Name }},
+{{- end }}
+	})
+{{- end }}
+{{- end }}
+
+	resp, err := r.{{ .Method | lower | title }}("{{ .Path }}")
+	if err != nil {
+		return {{ zeroReturn . }}err
+	}
+{{ if needsResult . }}
+	var result {{ .RspTypeName }}
+	if err := ginx.ParseResponse(resp.StatusCode(), resp.Bytes(), &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+{{- else if isFileRsp . }}
+	if err := ginx.ParseResponse(resp.StatusCode(), resp.Bytes(), nil); err != nil {
+		return nil, err
+	}
+	return resp.Bytes(), nil
+{{- else if isStringRsp . }}
+	if err := ginx.ParseResponse(resp.StatusCode(), resp.Bytes(), nil); err != nil {
+		return "", err
+	}
+	return resp.String(), nil
+{{- else }}
+	return ginx.ParseResponse(resp.StatusCode(), resp.Bytes(), nil)
+{{- end }}
+}
+{{ end }}
+{{- end }}
+{{- end }}
