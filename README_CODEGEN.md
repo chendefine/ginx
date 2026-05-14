@@ -71,6 +71,12 @@ type_mapping:
   time.Time: string
   int64: MyInt64
 
+# 扩展类型映射，可显式指定 import path
+type_mapping_ext:
+  time.Time:
+    type: civil.DateTime
+    import: cloud.google.com/go/civil
+
 # 输出选项
 output_options:
   skip_fmt: false           # 跳过 goimports 格式化
@@ -118,7 +124,7 @@ output_options:
 | enum | 命名类型 + const 常量组 |
 | allOf（仅 $ref） | struct 内嵌（embed） |
 | allOf（$ref + properties） | struct 内嵌 + 额外字段 |
-| oneOf / anyOf | `json.RawMessage` |
+| oneOf / anyOf | `json.RawMessage`（保守降级，不生成强类型 union） |
 | $ref | 引用对应的 Go 类型名 |
 
 ### 可空性规则
@@ -190,7 +196,13 @@ type UpdatePetReq struct {
 
 ## 响应类型生成
 
-根据 response 的 content-type 自动选择响应类型：
+根据成功 response 的状态码和 content-type 自动选择响应类型：
+
+- 优先选择最小的 `2xx` 响应状态码
+- `application/json` 优先生成 `{OperationName}Rsp`
+- 非 JSON 成功响应按 binary/text 分类
+- `204 No Content` 或无 content 的 `2xx` 响应生成 `struct{}`
+- 如果没有 `2xx`，但存在 `3xx` 响应，则生成 `ginx.RedirectRsp`
 
 | Content-Type | 生成类型 |
 |---|---|
@@ -205,6 +217,8 @@ type UpdatePetReq struct {
 ```go
 type GetPetRsp = Pet
 ```
+
+支持的 HTTP 方法包括 `GET`、`HEAD`、`POST`、`PUT`、`PATCH`、`DELETE`、`OPTIONS`。`TRACE` 暂不生成，遇到时会返回明确错误，避免静默丢失 operation。
 
 ## 服务接口生成
 

@@ -17,6 +17,7 @@ func init() {
 		"renderTags":         renderTags,
 		"title":              strings.Title,
 		"lower":              strings.ToLower,
+		"methodCall":         methodCall,
 		"pathParams":         filterPathParams,
 		"queryParams":        filterQueryParams,
 		"headerParams":       filterHeaderParams,
@@ -47,6 +48,27 @@ func renderTags(tags []Tag) string {
 		parts = append(parts, fmt.Sprintf(`%s:"%s"`, t.Key, t.Value))
 	}
 	return "`" + strings.Join(parts, " ") + "`"
+}
+
+func methodCall(method string) string {
+	switch strings.ToUpper(method) {
+	case "GET":
+		return "Get"
+	case "POST":
+		return "Post"
+	case "PUT":
+		return "Put"
+	case "PATCH":
+		return "Patch"
+	case "DELETE":
+		return "Delete"
+	case "HEAD":
+		return "Head"
+	case "OPTIONS":
+		return "Options"
+	default:
+		return strings.Title(strings.ToLower(method))
+	}
 }
 
 func filterPathParams(req *StructDef) []FieldDef {

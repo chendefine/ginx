@@ -37,15 +37,22 @@ components:
       type: object
       additionalProperties: true
     ExtendedPet:
+      description: extended pet object
       allOf:
         - $ref: "#/components/schemas/Pet"
         - type: object
+          required: [breed]
           properties:
             breed:
               type: string
             weight:
               type: number
               format: float
+    LabelMap:
+      allOf:
+        - type: object
+          additionalProperties:
+            type: string
     CombinedRef:
       allOf:
         - $ref: "#/components/schemas/Pet"

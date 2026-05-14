@@ -2,6 +2,7 @@ package responsetypes
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -197,5 +198,55 @@ func TestEmptyResponse(t *testing.T) {
 	err := client.GetEmpty(context.Background(), &GetEmptyReq{})
 	if err != nil {
 		t.Fatalf("GetEmpty: %v", err)
+	}
+}
+
+func TestAcceptedJSONResponse(t *testing.T) {
+	srv, client, svc := setupServer()
+	defer srv.Close()
+	defer svc.Cleanup()
+
+	rsp, err := client.CreateJob(context.Background(), &CreateJobReq{})
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	if rsp.JobID != "job-1" {
+		t.Errorf("JobID = %q, want job-1", rsp.JobID)
+	}
+}
+
+func TestPartialFileDownload(t *testing.T) {
+	srv, client, svc := setupServer()
+	defer srv.Close()
+	defer svc.Cleanup()
+
+	data, err := client.DownloadPartial(context.Background(), &DownloadPartialReq{})
+	if err != nil {
+		t.Fatalf("DownloadPartial: %v", err)
+	}
+	if string(data) != "binary-content" {
+		t.Errorf("data = %q", string(data))
+	}
+}
+
+func TestHeadAndOptions(t *testing.T) {
+	srv, client, svc := setupServer()
+	defer srv.Close()
+	defer svc.Cleanup()
+
+	if err := client.HeadCheck(context.Background(), &HeadCheckReq{}); err != nil {
+		t.Fatalf("HeadCheck: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodOptions, srv.URL+"/options-check", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("OPTIONS request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("OPTIONS status = %d, want 200", resp.StatusCode)
 	}
 }

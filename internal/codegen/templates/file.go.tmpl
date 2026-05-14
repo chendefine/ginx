@@ -159,7 +159,7 @@ func (c *{{ $.ServerName }}Client) {{ .Name }}(ctx context.Context, req *{{ .Nam
 {{- end }}
 {{- end }}
 
-	resp, err := r.{{ .Method | lower | title }}("{{ .Path }}")
+	resp, err := r.{{ methodCall .Method }}("{{ .Path }}")
 	if err != nil {
 		return {{ zeroReturn . }}err
 	}

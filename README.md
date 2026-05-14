@@ -101,7 +101,9 @@ func(ctx context.Context, req *Req) (*Rsp, error)
 - `rsp`：成功响应对象
 - `error`：失败时返回错误
 
-`GinContext(ctx)` 对 ginx 传入 handler 的原始 `ctx` 生效；基于该 `ctx` 再通过 `context.WithValue`、`context.WithCancel`、`context.WithTimeout`、`context.WithDeadline` 派生出的标准 context，通常也仍可取回 `*gin.Context`。但如果业务代码改用了无关的新 context，或在请求生命周期结束后继续持有并使用它，则不应依赖仍能安全访问 `*gin.Context`。涉及 Gin 专属能力时，仍建议在 handler 边界尽早取出并向下游传递所需值，而不是在深层 service 中回取。
+`GinContext(ctx)` 对 ginx 传入 handler 的原始 `ctx` 生效；基于该 `ctx` 再通过 `context.WithValue`、`context.WithCancel`、`context.WithTimeout`、`context.WithDeadline` 派生出的标准 context，通常也仍可取回 `*gin.Context`。但如果业务代码改用了无关的新 context，则无法回取。
+
+`ctx` 本身不会因为 ginx 内部复用而在请求结束后失效；不过 Gin 的 `*gin.Context` 和响应写入能力仍然只应在请求生命周期内使用。涉及 Gin 专属能力时，仍建议在 handler 边界尽早取出并向下游传递所需值，而不是在深层 service 中回取。
 
 如果你的 service 层已经采用 `context.Context + *Req -> (*Rsp, error)` 形式，接入成本会很低。
 
@@ -407,6 +409,8 @@ return nil, errors.New("boom")
 ```
 
 默认 HTTP 状态码为 500。
+
+注意：普通 `error` 的默认响应会直接包含 `err.Error()`。公网 API 或可能携带内部细节的服务，建议使用 `WithErrorHandler(...)` 统一做脱敏和错误码映射。
 
 ### 7.5 Sentinel 错误比较
 
@@ -723,7 +727,9 @@ if !ok {
 }
 ```
 
-`GinContext(ctx)` 对 ginx 传入 handler 的原始 `ctx` 生效；基于该 `ctx` 再派生出的标准 context，通常也仍可回取到底层 `*gin.Context`。但如果你改用了无关的新 context，或在请求生命周期结束后继续持有并使用它，则不应依赖仍能安全访问 `*gin.Context`。
+`GinContext(ctx)` 对 ginx 传入 handler 的原始 `ctx` 生效；基于该 `ctx` 再派生出的标准 context，通常也仍可回取到底层 `*gin.Context`。但如果你改用了无关的新 context，则无法回取。
+
+`ctx` 可以安全地按标准 `context.Context` 语义继续派生和传递；但 `*gin.Context` 本身仍然代表当前 HTTP 请求，不建议在请求结束后异步访问或写响应。
 
 ### 14.2 常用辅助函数
 

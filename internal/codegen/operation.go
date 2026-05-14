@@ -2,7 +2,9 @@ package codegen
 
 import (
 	"fmt"
+	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -19,14 +21,18 @@ type OperationDef struct {
 	Response    *TypeDef
 }
 
-func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, seen map[string]bool) ([]OperationDef, []TypeDef) {
+func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, seen map[string]bool) ([]OperationDef, []TypeDef, error) {
 	var ops []OperationDef
 	var extraTypes []TypeDef
 
 	paths := sortedPaths(spec.Paths.Map())
 	for _, path := range paths {
 		pathItem := spec.Paths.Map()[path]
-		for _, mo := range methodOperations(pathItem) {
+		methodOps, err := methodOperations(pathItem)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+		for _, mo := range methodOps {
 			if mo.op == nil {
 				continue
 			}
@@ -62,7 +68,7 @@ func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, s
 			})
 		}
 	}
-	return ops, extraTypes
+	return ops, extraTypes, nil
 }
 
 func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3.Operation, imports map[string]bool, seen map[string]bool) (*StructDef, []TypeDef) {
@@ -277,42 +283,6 @@ func isPointer(goType string) bool {
 	return len(goType) > 0 && goType[0] == '*'
 }
 
-func buildResponseType(opName string, op *openapi3.Operation, imports map[string]bool, seen map[string]bool) (*TypeDef, []TypeDef) {
-	if op.Responses == nil {
-		return nil, nil
-	}
-
-	var responseRef *openapi3.ResponseRef
-	for _, code := range []int{200, 201} {
-		if r := op.Responses.Status(code); r != nil {
-			responseRef = r
-			break
-		}
-	}
-	if responseRef == nil || responseRef.Value == nil {
-		return nil, nil
-	}
-
-	mt := responseRef.Value.Content.Get("application/json")
-	if mt == nil || mt.Schema == nil {
-		return nil, nil
-	}
-
-	rspName := opName + "Rsp"
-
-	if mt.Schema.Ref != "" {
-		typeName := refToTypeName(mt.Schema.Ref)
-		return &TypeDef{Alias: &AliasDef{Name: rspName, TargetType: typeName}}, nil
-	}
-
-	types := ResolveSchema(rspName, mt.Schema, imports, seen)
-	if len(types) == 0 {
-		return nil, nil
-	}
-	first := types[0]
-	return &first, types[1:]
-}
-
 func resolveParamType(param *openapi3.Parameter, imports map[string]bool) string {
 	if param.Schema == nil {
 		return "string"
@@ -345,10 +315,13 @@ type methodOp struct {
 	op     *openapi3.Operation
 }
 
-func methodOperations(item *openapi3.PathItem) []methodOp {
+func methodOperations(item *openapi3.PathItem) ([]methodOp, error) {
 	var ops []methodOp
 	if item.Get != nil {
 		ops = append(ops, methodOp{"GET", item.Get})
+	}
+	if item.Head != nil {
+		ops = append(ops, methodOp{"HEAD", item.Head})
 	}
 	if item.Post != nil {
 		ops = append(ops, methodOp{"POST", item.Post})
@@ -362,7 +335,13 @@ func methodOperations(item *openapi3.PathItem) []methodOp {
 	if item.Delete != nil {
 		ops = append(ops, methodOp{"DELETE", item.Delete})
 	}
-	return ops
+	if item.Options != nil {
+		ops = append(ops, methodOp{"OPTIONS", item.Options})
+	}
+	if item.Trace != nil {
+		return nil, fmt.Errorf("TRACE operations are not supported by oapi-ginx")
+	}
+	return ops, nil
 }
 
 func sortedPaths(m map[string]*openapi3.PathItem) []string {
@@ -405,16 +384,43 @@ func isSSEOperation(op *openapi3.Operation) bool {
 	if op.Responses == nil {
 		return false
 	}
-	for _, code := range []int{200, 201} {
-		r := op.Responses.Status(code)
-		if r == nil || r.Value == nil {
-			continue
-		}
-		if r.Value.Content.Get("text/event-stream") != nil {
-			return true
-		}
+	if _, r := selectSuccessResponse(op.Responses); r != nil && r.Value != nil {
+		return r.Value.Content.Get("text/event-stream") != nil
 	}
 	return false
+}
+
+func buildResponseType(opName string, op *openapi3.Operation, imports map[string]bool, seen map[string]bool) (*TypeDef, []TypeDef) {
+	if op.Responses == nil {
+		return nil, nil
+	}
+
+	statusCode, responseRef := selectSuccessResponse(op.Responses)
+	if responseRef == nil || responseRef.Value == nil {
+		return nil, nil
+	}
+	if statusCode == http.StatusNoContent {
+		return nil, nil
+	}
+
+	mt := responseRef.Value.Content.Get("application/json")
+	if mt == nil || mt.Schema == nil {
+		return nil, nil
+	}
+
+	rspName := opName + "Rsp"
+
+	if mt.Schema.Ref != "" {
+		typeName := refToTypeName(mt.Schema.Ref)
+		return &TypeDef{Alias: &AliasDef{Name: rspName, TargetType: typeName}}, nil
+	}
+
+	types := ResolveSchema(rspName, mt.Schema, imports, seen)
+	if len(types) == 0 {
+		return nil, nil
+	}
+	first := types[0]
+	return &first, types[1:]
 }
 
 func resolveResponseTypeName(opName string, op *openapi3.Operation) string {
@@ -422,40 +428,15 @@ func resolveResponseTypeName(opName string, op *openapi3.Operation) string {
 		return "struct{}"
 	}
 
-	// Check for 3xx redirect (no 2xx)
-	has2xx := false
-	has3xx := false
-	for code := 200; code < 300; code++ {
-		if op.Responses.Status(code) != nil {
-			has2xx = true
-			break
-		}
-	}
-	if !has2xx {
-		for code := 300; code < 400; code++ {
-			if op.Responses.Status(code) != nil {
-				has3xx = true
-				break
-			}
-		}
-		if has3xx {
-			return "ginx.RedirectRsp"
-		}
+	if !has2xxResponse(op.Responses) && has3xxResponse(op.Responses) {
+		return "ginx.RedirectRsp"
 	}
 
-	var responseRef *openapi3.ResponseRef
-	for _, code := range []int{200, 201} {
-		if r := op.Responses.Status(code); r != nil {
-			responseRef = r
-			break
-		}
-	}
-
-	// 204 No Content
-	if responseRef == nil {
+	statusCode, responseRef := selectSuccessResponse(op.Responses)
+	if responseRef == nil || responseRef.Value == nil {
 		return "struct{}"
 	}
-	if responseRef.Value == nil {
+	if statusCode == http.StatusNoContent {
 		return "struct{}"
 	}
 
@@ -482,6 +463,39 @@ func resolveResponseTypeName(opName string, op *openapi3.Operation) string {
 	}
 
 	return "struct{}"
+}
+
+func selectSuccessResponse(responses *openapi3.Responses) (int, *openapi3.ResponseRef) {
+	if responses == nil {
+		return 0, nil
+	}
+	for code := http.StatusOK; code < http.StatusMultipleChoices; code++ {
+		if r := responses.Status(code); r != nil {
+			return code, r
+		}
+	}
+	return 0, nil
+}
+
+func has2xxResponse(responses *openapi3.Responses) bool {
+	_, r := selectSuccessResponse(responses)
+	return r != nil
+}
+
+func has3xxResponse(responses *openapi3.Responses) bool {
+	if responses == nil {
+		return false
+	}
+	for name := range responses.Map() {
+		code, err := strconv.Atoi(name)
+		if err != nil {
+			continue
+		}
+		if code >= http.StatusMultipleChoices && code < http.StatusBadRequest {
+			return true
+		}
+	}
+	return false
 }
 
 func isBinaryContentType(ct string) bool {

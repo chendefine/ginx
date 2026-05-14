@@ -165,7 +165,8 @@ func resolveObject(name string, schema *openapi3.Schema, imports map[string]bool
 
 func resolveAllOf(name string, schema *openapi3.Schema, imports map[string]bool, seen map[string]bool) []TypeDef {
 	merged := &openapi3.Schema{
-		Properties: make(openapi3.Schemas),
+		Properties:  make(openapi3.Schemas),
+		Description: schema.Description,
 	}
 
 	var embeds []string
@@ -182,6 +183,12 @@ func resolveAllOf(name string, schema *openapi3.Schema, imports map[string]bool,
 			merged.Properties[k] = v
 		}
 		merged.Required = append(merged.Required, ref.Value.Required...)
+		if merged.Description == "" {
+			merged.Description = ref.Value.Description
+		}
+		if merged.AdditionalProperties.Schema == nil {
+			merged.AdditionalProperties = ref.Value.AdditionalProperties
+		}
 	}
 
 	if len(merged.Properties) == 0 && len(embeds) > 0 {
@@ -287,7 +294,6 @@ func splitBySlash(s string) []string {
 	result = append(result, s[start:])
 	return result
 }
-
 
 func isNilable(goType string) bool {
 	if len(goType) >= 2 && goType[:2] == "[]" {

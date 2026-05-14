@@ -15,7 +15,8 @@ import (
 	"resty.dev/v3"
 )
 
-// 编译期验证 *Context 实现 context.Context 接口
+// 编译期验证 *Context 实现 context.Context 接口. 业务路径使用标准 context,
+// *Context 仅保留用于兼容测试辅助.
 var _ context.Context = (*Context)(nil)
 
 func TestContextImplementsContextInterface(t *testing.T) {
@@ -58,6 +59,23 @@ func TestGinContextFromPlainContextWithStoredGinContext(t *testing.T) {
 	got, ok := GinContext(ctx)
 	if !ok || got != gc {
 		t.Fatalf("GinContext(ctx) = %v, %v, want %v, true", got, ok, gc)
+	}
+}
+
+func TestAcquiredContextSurvivesRelease(t *testing.T) {
+	w := httptest.NewRecorder()
+	gc, _ := gin.CreateTestContext(w)
+	ctx := acquireContext(gc)
+	derived := context.WithValue(ctx, "trace_id", "t-1")
+
+	releaseContext(ctx)
+
+	got, ok := GinContext(derived)
+	if !ok || got != gc {
+		t.Fatalf("GinContext(derived after release) = %v, %v, want %v, true", got, ok, gc)
+	}
+	if got := derived.Value("trace_id"); got != "t-1" {
+		t.Fatalf("derived value = %v", got)
 	}
 }
 

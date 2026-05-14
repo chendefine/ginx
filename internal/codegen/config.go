@@ -15,9 +15,10 @@ type Config struct {
 
 	GenerateDirective string `yaml:"generate_directive"`
 
-	IncludeTags []string          `yaml:"include_tags"`
-	ExcludeTags []string          `yaml:"exclude_tags"`
-	TypeMapping map[string]string `yaml:"type_mapping"`
+	IncludeTags    []string                  `yaml:"include_tags"`
+	ExcludeTags    []string                  `yaml:"exclude_tags"`
+	TypeMapping    map[string]string         `yaml:"type_mapping"`
+	TypeMappingExt map[string]TypeMappingExt `yaml:"type_mapping_ext"`
 
 	OutputOptions OutputOptions `yaml:"output_options"`
 
@@ -37,6 +38,11 @@ type OutputOptions struct {
 	SkipFmt        bool  `yaml:"skip_fmt"`
 	GenerateServer *bool `yaml:"generate_server"`
 	GenerateClient *bool `yaml:"generate_client"`
+}
+
+type TypeMappingExt struct {
+	Type   string `yaml:"type"`
+	Import string `yaml:"import"`
 }
 
 func (o *OutputConfig) UnmarshalYAML(value *yaml.Node) error {

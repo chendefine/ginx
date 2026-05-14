@@ -159,6 +159,43 @@ paths:
       responses:
         "200":
           description: No content defined
+  /accepted-job:
+    post:
+      operationId: createJob
+      responses:
+        "202":
+          description: Accepted job
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+  /partial-download:
+    get:
+      operationId: downloadPartial
+      responses:
+        "206":
+          description: Partial file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /head-check:
+    head:
+      operationId: headCheck
+      responses:
+        "204":
+          description: Headers only
+  /options-check:
+    options:
+      operationId: optionsCheck
+      responses:
+        "204":
+          description: Options
 components:
   schemas:
     User:

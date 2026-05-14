@@ -28,6 +28,10 @@ include_tags: [public]
 exclude_tags: [internal]
 type_mapping:
   time.Time: string
+type_mapping_ext:
+  int64:
+    type: custom.Int64
+    import: example.com/custom
 output_options:
   skip_fmt: true
   generate_server: false
@@ -65,6 +69,9 @@ output_options:
 	}
 	if cfg.TypeMapping["time.Time"] != "string" {
 		t.Fatalf("unexpected type mapping: %#v", cfg.TypeMapping)
+	}
+	if cfg.TypeMappingExt["int64"].Type != "custom.Int64" || cfg.TypeMappingExt["int64"].Import != "example.com/custom" {
+		t.Fatalf("unexpected extended type mapping: %#v", cfg.TypeMappingExt)
 	}
 	if cfg.ShouldIncludeOperation([]string{"internal", "public"}) {
 		t.Fatal("exclude_tags should win over include_tags")

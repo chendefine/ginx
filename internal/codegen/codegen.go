@@ -44,6 +44,10 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 
 	var allTypes []TypeDef
 
+	if err := validateComponentTypeNames(spec); err != nil {
+		return nil, err
+	}
+
 	if spec.Components != nil && spec.Components.Schemas != nil {
 		schemaNames := sortedSchemaNames(spec.Components.Schemas)
 		for _, name := range schemaNames {
@@ -54,14 +58,18 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 		}
 	}
 
-	ops, extraTypes := ExtractOperations(spec, &cfg, importsMap, seen)
+	ops, extraTypes, err := ExtractOperations(spec, &cfg, importsMap, seen)
+	if err != nil {
+		return nil, err
+	}
 	allTypes = append(allTypes, extraTypes...)
 
 	generateServer := cfg.ShouldGenerateServer()
+	generateClient := cfg.ShouldGenerateClient()
 
 	for _, op := range ops {
 		if op.Request != nil {
-			if generateServer || len(op.Request.Fields) > 0 || len(op.Request.Embeds) > 0 {
+			if generateServer || generateClient || len(op.Request.Fields) > 0 || len(op.Request.Embeds) > 0 {
 				allTypes = append(allTypes, TypeDef{Struct: op.Request})
 			}
 		}
@@ -80,6 +88,17 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 		for i := range allTypes {
 			applyTypeMapping(&allTypes[i], cfg.TypeMapping, importsMap)
 		}
+	}
+	if len(cfg.TypeMappingExt) > 0 {
+		for i := range allTypes {
+			applyTypeMappingExt(&allTypes[i], cfg.TypeMappingExt, importsMap)
+		}
+	}
+	if err := validateOperationNames(ops); err != nil {
+		return nil, err
+	}
+	if err := validateTypeDefs(allTypes); err != nil {
+		return nil, err
 	}
 
 	pkgName := cfg.PackageName
@@ -108,9 +127,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 
 		if cfg.Output.Server != "" && generateServer && len(ops) > 0 {
 			serverImports := map[string]bool{
-				"context":                      true,
-				"github.com/chendefine/ginx":   true,
-				"github.com/gin-gonic/gin":     true,
+				"context":                    true,
+				"github.com/chendefine/ginx": true,
+				"github.com/gin-gonic/gin":   true,
 			}
 			for _, op := range ops {
 				if op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.StringRsp" || op.RspTypeName == "ginx.RedirectRsp" {
@@ -152,7 +171,7 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 			}
 		}
 
-		if cfg.Output.Client != "" && cfg.ShouldGenerateClient() && len(ops) > 0 {
+		if cfg.Output.Client != "" && generateClient && len(ops) > 0 {
 			clientImports := map[string]bool{
 				"context":                    true,
 				"fmt":                        true,
@@ -180,7 +199,6 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 		}
 	} else {
 		allImports := sortedImports(importsMap)
-		generateClient := cfg.ShouldGenerateClient()
 		if generateClient && len(ops) > 0 {
 			importsMap["fmt"] = true
 			importsMap["github.com/chendefine/ginx"] = true
@@ -223,7 +241,7 @@ func formatCode(code string, skipFmt bool) ([]byte, error) {
 		TabWidth:  8,
 	})
 	if err != nil {
-		return []byte(code), nil
+		return nil, fmt.Errorf("format generated code: %w", err)
 	}
 	return formatted, nil
 }
@@ -269,6 +287,38 @@ func applyTypeMapping(td *TypeDef, mapping map[string]string, imports map[string
 			td.Alias.TargetType = replacement
 			addImportForType(replacement, imports)
 		}
+	}
+}
+
+func applyTypeMappingExt(td *TypeDef, mapping map[string]TypeMappingExt, imports map[string]bool) {
+	rewrite := func(goType string) string {
+		if m, ok := mapping[goType]; ok && m.Type != "" {
+			if m.Import != "" {
+				imports[m.Import] = true
+			} else {
+				addImportForType(m.Type, imports)
+			}
+			return m.Type
+		}
+		if len(goType) > 0 && goType[0] == '*' {
+			if m, ok := mapping[goType[1:]]; ok && m.Type != "" {
+				if m.Import != "" {
+					imports[m.Import] = true
+				} else {
+					addImportForType(m.Type, imports)
+				}
+				return "*" + m.Type
+			}
+		}
+		return goType
+	}
+	if td.Struct != nil {
+		for i, f := range td.Struct.Fields {
+			td.Struct.Fields[i].Type = rewrite(f.Type)
+		}
+	}
+	if td.Alias != nil {
+		td.Alias.TargetType = rewrite(td.Alias.TargetType)
 	}
 }
 

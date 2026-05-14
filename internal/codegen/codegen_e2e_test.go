@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"go/format"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -168,10 +169,16 @@ func TestE2E_ComplexTypes_Map(t *testing.T) {
 func TestE2E_ComplexTypes_AllOf(t *testing.T) {
 	code := generateSingleFile(t, "complex_types.yaml")
 
+	assertContains(t, code, "// ExtendedPet extended pet object")
 	assertContains(t, code, "type ExtendedPet struct")
 	assertContains(t, code, "\tPet")
-	assertContains(t, code, "Breed *string")
+	assertContains(t, code, `Breed string `+"`"+`json:"breed" binding:"required"`+"`")
 	assertContains(t, code, "Weight *float32")
+}
+
+func TestE2E_ComplexTypes_AllOfAdditionalProperties(t *testing.T) {
+	code := generateSingleFile(t, "complex_types.yaml")
+	assertContains(t, code, "type LabelMap = map[string]string")
 }
 
 func TestE2E_ComplexTypes_AllOfSingleRef(t *testing.T) {
@@ -811,6 +818,18 @@ func TestE2E_Config_TypeMapping(t *testing.T) {
 	assertNotContains(t, code, "time.Time")
 }
 
+func TestE2E_Config_TypeMappingExt(t *testing.T) {
+	code := generateSingleFile(t, "type_mapping.yaml", func(cfg *Config) {
+		cfg.TypeMappingExt = map[string]TypeMappingExt{
+			"time.Time": {Type: "civil.DateTime", Import: "cloud.google.com/go/civil"},
+		}
+	})
+
+	assertContains(t, code, `"cloud.google.com/go/civil"`)
+	assertContains(t, code, "CreatedAt civil.DateTime")
+	assertContains(t, code, "UpdatedAt *civil.DateTime")
+}
+
 // ============================================================
 // Module 13: Config Features - Generate Directive
 // ============================================================
@@ -912,6 +931,217 @@ func TestE2E_MultiFile_ClientOnly(t *testing.T) {
 	assertContains(t, client, "NewClient")
 	assertNotContains(t, client, "type Pet struct")
 	assertNotContains(t, client, "ServerInterface")
+}
+
+func TestE2E_ClientOnly_NoRequestStillGeneratesReq(t *testing.T) {
+	falseVal := false
+	result := generateMultiFile(t, "response_types.yaml", func(cfg *Config) {
+		cfg.Output = OutputConfig{Types: "types.gen.go", Client: "client.gen.go"}
+		cfg.OutputOptions.GenerateServer = &falseVal
+	})
+
+	types := string(result.Types)
+	client := string(result.Client)
+	assertContains(t, types, "type GetEmptyReq struct")
+	assertContains(t, client, "GetEmpty(ctx context.Context, req *GetEmptyReq) error")
+	assertValidGo(t, types)
+	assertValidGo(t, client)
+}
+
+func TestE2E_Methods_HEADAndOPTIONS(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "methods.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Methods
+  version: 1.0.0
+paths:
+  /ping:
+    head:
+      operationId: headPing
+      responses:
+        "204":
+          description: ok
+    options:
+      operationId: optionsPing
+      responses:
+        "204":
+          description: ok
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		Output:        OutputConfig{Types: "types.go", Server: "server.go", Client: "client.go"},
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti: %v", err)
+	}
+	server := string(result.Server)
+	client := string(result.Client)
+	assertContains(t, server, "HeadPing(ctx context.Context, req *HeadPingReq) (*struct{}, error)")
+	assertContains(t, server, `ginx.HEAD(r, "/ping", s.HeadPing, opts...)`)
+	assertContains(t, server, `ginx.OPTIONS(r, "/ping", s.OptionsPing, opts...)`)
+	assertContains(t, client, `resp, err := r.Head("/ping")`)
+	assertContains(t, client, `resp, err := r.Options("/ping")`)
+}
+
+func TestE2E_TraceOperationReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "trace.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Trace
+  version: 1.0.0
+paths:
+  /trace:
+    trace:
+      operationId: tracePing
+      responses:
+        "204":
+          description: ok
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	_, err := GenerateMulti(Config{PackageName: "api", SpecPath: specPath, OutputOptions: OutputOptions{SkipFmt: true}})
+	if err == nil || !strings.Contains(err.Error(), "TRACE operations are not supported") {
+		t.Fatalf("GenerateMulti error = %v, want TRACE unsupported", err)
+	}
+}
+
+func TestE2E_ResponseStatusSelection(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "responses.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Responses
+  version: 1.0.0
+paths:
+  /accepted:
+    post:
+      operationId: createJob
+      responses:
+        "202":
+          description: accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+  /partial:
+    get:
+      operationId: downloadPart
+      responses:
+        "206":
+          description: partial
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /empty:
+    delete:
+      operationId: deleteEmpty
+      responses:
+        "204":
+          description: no content
+  /redirect:
+    get:
+      operationId: redirectOnly
+      responses:
+        "302":
+          description: found
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		Output:        OutputConfig{Types: "types.go", Server: "server.go"},
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti: %v", err)
+	}
+	server := string(result.Server)
+	types := string(result.Types)
+	assertContains(t, types, "type CreateJobRsp struct")
+	assertContains(t, server, "CreateJob(ctx context.Context, req *CreateJobReq) (*CreateJobRsp, error)")
+	assertContains(t, server, "DownloadPart(ctx context.Context, req *DownloadPartReq) (*ginx.FileRsp, error)")
+	assertContains(t, server, "DeleteEmpty(ctx context.Context, req *DeleteEmptyReq) (*struct{}, error)")
+	assertContains(t, server, "RedirectOnly(ctx context.Context, req *RedirectOnlyReq) (*ginx.RedirectRsp, error)")
+}
+
+func TestE2E_FormatErrorIsReturned(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "badfmt.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: BadFmt
+  version: 1.0.0
+components:
+  schemas:
+    Broken:
+      type: object
+      properties:
+        bad-name:
+          type: string
+paths: {}
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	_, err := GenerateMulti(Config{PackageName: "bad-package", SpecPath: specPath})
+	if err == nil || !strings.Contains(err.Error(), "format generated code") {
+		t.Fatalf("GenerateMulti error = %v, want format error", err)
+	}
+
+	result, err := GenerateMulti(Config{
+		PackageName:   "bad-package",
+		SpecPath:      specPath,
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti skip fmt: %v", err)
+	}
+	assertContains(t, string(result.Types), "package bad-package")
+}
+
+func TestE2E_NameConflictErrors(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "conflict.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Conflict
+  version: 1.0.0
+components:
+  schemas:
+    user_id:
+      type: object
+      properties:
+        value:
+          type: string
+    user-id:
+      type: object
+      properties:
+        value:
+          type: string
+paths: {}
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	_, err := GenerateMulti(Config{PackageName: "api", SpecPath: specPath, OutputOptions: OutputOptions{SkipFmt: true}})
+	if err == nil || !strings.Contains(err.Error(), "type name conflict") {
+		t.Fatalf("GenerateMulti error = %v, want type name conflict", err)
+	}
 }
 
 // ============================================================

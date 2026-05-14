@@ -83,4 +83,20 @@ func (s *TestService) GetEmpty(_ context.Context, _ *GetEmptyReq) (*struct{}, er
 	return &struct{}{}, nil
 }
 
+func (s *TestService) CreateJob(_ context.Context, _ *CreateJobReq) (*CreateJobRsp, error) {
+	return &CreateJobRsp{JobID: "job-1"}, nil
+}
+
+func (s *TestService) DownloadPartial(_ context.Context, _ *DownloadPartialReq) (*ginx.FileRsp, error) {
+	return ginx.FileResponse(s.filePath, "partial.bin"), nil
+}
+
+func (s *TestService) HeadCheck(_ context.Context, _ *HeadCheckReq) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
+func (s *TestService) OptionsCheck(_ context.Context, _ *OptionsCheckReq) (*struct{}, error) {
+	return &struct{}{}, nil
+}
+
 var _ ServerInterface = (*TestService)(nil)

@@ -3,7 +3,6 @@ package ginx
 import (
 	"context"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,14 +12,13 @@ type ginContextKey struct{}
 
 var internalGinContextKey = ginContextKey{}
 
-// Context 封装 *gin.Context 并实现 context.Context 接口. 通过对象池复用减少堆分配.
+// Context 封装 *gin.Context 并实现 context.Context 接口.
+//
+// Deprecated: 业务路径现在使用标准 context.WithValue 包装 *gin.Context, 避免请求
+// 返回后复用对象导致派生 context 失效. 该类型保留用于兼容和测试.
 type Context struct {
 	parent context.Context
 	gc     *gin.Context
-}
-
-var contextPool = sync.Pool{
-	New: func() any { return &Context{} },
 }
 
 func requestContext(gc *gin.Context) context.Context {
@@ -30,20 +28,14 @@ func requestContext(gc *gin.Context) context.Context {
 	return context.Background()
 }
 
-func acquireContext(gc *gin.Context) *Context {
-	ctx := contextPool.Get().(*Context)
-	ctx.gc = gc
-	ctx.parent = requestContext(gc)
-	return ctx
+func acquireContext(gc *gin.Context) context.Context {
+	return context.WithValue(requestContext(gc), internalGinContextKey, gc)
 }
 
-func releaseContext(ctx *Context) {
-	ctx.parent = nil
-	ctx.gc = nil
-	contextPool.Put(ctx)
+func releaseContext(context.Context) {
 }
 
-// newContext 直接构造, 主要用于测试. 业务路径走 acquire/release.
+// newContext 直接构造, 主要用于测试. 业务路径走 acquireContext.
 func newContext(gc *gin.Context) *Context {
 	return &Context{parent: requestContext(gc), gc: gc}
 }
