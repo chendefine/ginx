@@ -52,6 +52,15 @@ func ToCamelCase(s string) string {
 	return strings.Join(words, "")
 }
 
+// ToIdentifier 将字符串转为合法的 Go 导出标识符. 与 ToCamelCase 相同, 但当结果以数字开头时加 X 前缀.
+func ToIdentifier(s string) string {
+	result := ToCamelCase(s)
+	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
+		result = "X" + result
+	}
+	return result
+}
+
 func splitWords(s string) []string {
 	var words []string
 	var current []rune
@@ -88,7 +97,7 @@ func splitWords(s string) []string {
 
 func OperationName(method, path, operationID string) string {
 	if operationID != "" {
-		return ToCamelCase(operationID)
+		return ToIdentifier(operationID)
 	}
 	name := ToCamelCase(strings.ToLower(method))
 	segments := strings.Split(strings.Trim(path, "/"), "/")

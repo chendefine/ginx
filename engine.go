@@ -44,6 +44,7 @@ type JSONRenderer func(c *gin.Context, status int, body any)
 
 // Interceptor 在 handler 真正执行前后插入逻辑. next() 执行下一层.
 // req/rsp 为类型擦除, 需要时可用 reflect 检查.
+// 注意: next 在单次请求中只能调用一次, 重复调用会跳过中间层.
 type Interceptor func(ctx context.Context, req any, next func() (any, error)) (any, error)
 
 // RegisterInfo 路由注册时的元信息, 供外部生成 OpenAPI 等.

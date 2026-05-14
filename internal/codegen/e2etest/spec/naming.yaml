@@ -4,6 +4,14 @@ info:
   version: "1.0.0"
 components:
   schemas:
+    123_error:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: integer
+          format: int32
     http_url_config:
       type: object
       properties:
@@ -60,6 +68,16 @@ paths:
                   properties:
                     url:
                       type: string
+  /numeric-schema-ref:
+    get:
+      operationId: get_numeric_schema_ref
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/123_error"
   /no-operation-id/{resource_id}:
     get:
       parameters:

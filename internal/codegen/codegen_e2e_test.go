@@ -840,6 +840,13 @@ func TestE2E_Naming_OperationID(t *testing.T) {
 	assertContains(t, code, "type ListHTTPAPIEndpointsReq struct")
 }
 
+func TestE2E_Naming_NumericSchemaRef(t *testing.T) {
+	code := generateSingleFile(t, "naming.yaml")
+	assertContains(t, code, "type X123Error struct")
+	assertContains(t, code, "type GetNumericSchemaRefRsp = X123Error")
+	assertNotContains(t, code, " = 123Error")
+}
+
 func TestE2E_Naming_NoOperationID(t *testing.T) {
 	code := generateSingleFile(t, "naming.yaml")
 	assertContains(t, code, "type GetNoOperationIDResourceIDReq struct")

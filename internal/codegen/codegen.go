@@ -20,11 +20,6 @@ func Generate(cfg Config) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if cfg.Output.IsMultiFile() {
-		return result.Types, nil
-	}
-
 	return result.Types, nil
 }
 
@@ -52,7 +47,7 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 		schemaNames := sortedSchemaNames(spec.Components.Schemas)
 		for _, name := range schemaNames {
 			schemaRef := spec.Components.Schemas[name]
-			typeName := ToCamelCase(name)
+			typeName := ToIdentifier(name)
 			types := ResolveSchema(typeName, schemaRef, importsMap, seen)
 			allTypes = append(allTypes, types...)
 		}
@@ -273,6 +268,7 @@ func applyTypeMapping(td *TypeDef, mapping map[string]string, imports map[string
 			if replacement, ok := mapping[f.Type]; ok {
 				td.Struct.Fields[i].Type = replacement
 				addImportForType(replacement, imports)
+				continue
 			}
 			trimmed := f.Type
 			if len(trimmed) > 0 && trimmed[0] == '*' {

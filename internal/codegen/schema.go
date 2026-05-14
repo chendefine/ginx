@@ -179,6 +179,7 @@ func resolveAllOf(name string, schema *openapi3.Schema, imports map[string]bool,
 		Properties:  make(openapi3.Schemas),
 		Description: schema.Description,
 	}
+	merged.Required = append(merged.Required, schema.Required...)
 
 	var embeds []string
 	for _, ref := range schema.AllOf {
@@ -280,7 +281,7 @@ func refToTypeName(ref string) string {
 	if len(parts) == 0 {
 		return "any"
 	}
-	return ToCamelCase(parts[len(parts)-1])
+	return ToIdentifier(parts[len(parts)-1])
 }
 
 func splitRef(ref string) []string {

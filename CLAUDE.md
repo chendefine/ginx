@@ -47,7 +47,7 @@ ginx.GET(router, "/path/:id", func(ctx *ginx.Context, req *MyReq) (*MyRsp, error
 
 **HandleOption constants** control behavior: `DataWrap`, `NoDataWrap`, `StatusCodeAlwaysOK`.
 
-**Error responses** use `ginx.Error(code, msg, optionalHttpCode)`. If `HttpCode` is in 100–599, it's used as the HTTP status; otherwise defaults to 500.
+**Error responses** use `ginx.Error(code, msg, optionalHttpCode)`. If `HttpCode` is in 101–599, it's used as the HTTP status; otherwise defaults to 500.
 
 **Response interface**: Return `*FileRsp`, `*RedirectRsp`, `*StringRsp`, or `*DataRsp` (or any `Response` implementor) from handlers to bypass JSON wrapping entirely.
 

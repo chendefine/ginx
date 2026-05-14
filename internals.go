@@ -291,7 +291,7 @@ var validationMessages = map[string]validationMessage{
 	"hsl":              {suffix: " must be a valid color"},
 	"hsla":             {suffix: " must be a valid color"},
 	"iscolor":          {suffix: " must be a valid color"},
-	"html_encoded":     {suffix: " must be a valid color"},
+	"html_encoded":     {suffix: " must be HTML encoded"},
 	"credit_card":      {suffix: " must be a valid credit card number"},
 	"isbn":             {suffix: " must be a valid ISBN"},
 	"isbn10":           {suffix: " must be a valid ISBN"},

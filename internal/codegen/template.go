@@ -15,7 +15,7 @@ var tmpl *template.Template
 func init() {
 	funcMap := template.FuncMap{
 		"renderTags":         renderTags,
-		"title":              strings.Title,
+		"title":              titleCase,
 		"lower":              strings.ToLower,
 		"methodCall":         methodCall,
 		"pathParams":         filterPathParams,
@@ -69,7 +69,7 @@ func methodCall(method string) string {
 	case "OPTIONS":
 		return "Options"
 	default:
-		return strings.Title(strings.ToLower(method))
+		return titleCase(strings.ToLower(method))
 	}
 }
 
@@ -390,4 +390,11 @@ func executeClientTemplate(data *clientTemplateData) (string, error) {
 		return "", fmt.Errorf("execute client template: %w", err)
 	}
 	return buf.String(), nil
+}
+
+func titleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

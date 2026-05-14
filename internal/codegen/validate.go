@@ -13,7 +13,7 @@ func validateComponentTypeNames(spec *openapi3.T) error {
 	}
 	seen := make(map[string]string)
 	for _, name := range sortedSchemaNames(spec.Components.Schemas) {
-		goName := ToCamelCase(name)
+		goName := ToIdentifier(name)
 		if prev, ok := seen[goName]; ok && prev != name {
 			return fmt.Errorf("type name conflict: schemas %q and %q both generate %s", prev, name, goName)
 		}

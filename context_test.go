@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -300,6 +301,49 @@ func TestSSEStream_Close_Idempotent(t *testing.T) {
 	if err := stream.Close(); err != nil {
 		t.Fatalf("second Close returned error: %v", err)
 	}
+}
+
+func TestSSEStream_Close_DoesNotBlockWhileConnecting(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-release
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	es := resty.NewEventSource().SetURL(srv.URL).SetRetryCount(0)
+	stream := NewSSEStream(ctx, es)
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("SSE request did not reach test server")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = stream.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Close blocked while EventSource was connecting")
+	}
+
+	releaseOnce.Do(func() { close(release) })
 }
 
 func TestSSEStream_ContextCancel(t *testing.T) {
