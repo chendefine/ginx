@@ -65,6 +65,21 @@ func (c *{{ $.ServerName }}Client) {{ .Name }}(ctx context.Context, req *{{ .Nam
 	es.SetHeader("{{ tagValue . "header" }}", {{ fmtValue . }})
 {{- end }}
 {{- end }}
+{{ if cookieParams .Request }}
+	cookies := make([]string, 0)
+{{- range cookieParams .Request }}
+{{- if isPointerType . }}
+	if req.{{ .Name }} != nil {
+		cookies = append(cookies, (&http.Cookie{Name: "{{ tagValue . "cookie" }}", Value: {{ fmtDerefValue . }}}).String())
+	}
+{{- else }}
+	cookies = append(cookies, (&http.Cookie{Name: "{{ tagValue . "cookie" }}", Value: {{ fmtValue . }}}).String())
+{{- end }}
+{{- end }}
+	if len(cookies) > 0 {
+		es.SetHeader("Cookie", strings.Join(cookies, "; "))
+	}
+{{ end }}
 
 	return ginx.NewSSEStream(ctx, es), nil
 }
@@ -92,11 +107,20 @@ func (c *{{ $.ServerName }}Client) {{ .Name }}(ctx context.Context, req *{{ .Nam
 	r.SetHeader("{{ tagValue . "header" }}", {{ fmtValue . }})
 {{- end }}
 {{- end }}
+{{ range cookieParams .Request }}
+{{- if isPointerType . }}
+	if req.{{ .Name }} != nil {
+		r.SetCookie(&http.Cookie{Name: "{{ tagValue . "cookie" }}", Value: {{ fmtDerefValue . }}})
+	}
+{{- else }}
+	r.SetCookie(&http.Cookie{Name: "{{ tagValue . "cookie" }}", Value: {{ fmtValue . }}})
+{{- end }}
+{{- end }}
 {{- if .Request.Embeds }}
 	r.SetBody(&req.{{ index .Request.Embeds 0 }})
 {{- else }}
 {{- $bodyFields := bodyFields .Request }}
-{{- $hasParams := or (pathParams .Request) (queryParams .Request) (headerParams .Request) }}
+{{- $hasParams := or (or (pathParams .Request) (queryParams .Request)) (or (headerParams .Request) (cookieParams .Request)) }}
 {{- if and $bodyFields (not $hasParams) }}
 	r.SetBody(req)
 {{- else if $bodyFields }}

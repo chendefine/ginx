@@ -34,6 +34,11 @@ paths:
           in: header
           schema:
             type: string
+        - name: sid
+          in: cookie
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           description: ok

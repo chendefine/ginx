@@ -178,6 +178,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 				"github.com/chendefine/ginx": true,
 				"resty.dev/v3":               true,
 			}
+			if hasClientCookieParameters(ops) {
+				clientImports["net/http"] = true
+			}
 			if hasSSEOperations(ops) {
 				clientImports["strings"] = true
 				clientImports["net/url"] = true
@@ -203,6 +206,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 			importsMap["fmt"] = true
 			importsMap["github.com/chendefine/ginx"] = true
 			importsMap["resty.dev/v3"] = true
+			if hasClientCookieParameters(ops) {
+				importsMap["net/http"] = true
+			}
 			if hasSSEOperations(ops) {
 				importsMap["strings"] = true
 				importsMap["net/url"] = true
@@ -362,6 +368,18 @@ func sortedImports(m map[string]bool) []string {
 func hasSSEOperations(ops []OperationDef) bool {
 	for _, op := range ops {
 		if op.IsSSE {
+			return true
+		}
+	}
+	return false
+}
+
+func hasClientCookieParameters(ops []OperationDef) bool {
+	for _, op := range ops {
+		if !op.IsSSE && skipForClient(op) {
+			continue
+		}
+		if len(filterCookieParams(op.Request)) > 0 {
 			return true
 		}
 	}

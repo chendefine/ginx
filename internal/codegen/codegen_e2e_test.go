@@ -229,6 +229,12 @@ func TestE2E_RequestParams_HeaderParam(t *testing.T) {
 	assertContains(t, code, `XRequestID *string `+"`"+`header:"X-Request-ID"`+"`")
 }
 
+func TestE2E_RequestParams_CookieParam(t *testing.T) {
+	code := generateSingleFile(t, "request_params.yaml")
+
+	assertContains(t, code, `Sid string `+"`"+`cookie:"sid" binding:"required"`+"`")
+}
+
 func TestE2E_RequestParams_RequiredHeader(t *testing.T) {
 	code := generateSingleFile(t, "request_params.yaml")
 
@@ -547,6 +553,13 @@ func TestE2E_Client_HeaderParams(t *testing.T) {
 
 	assertContains(t, client, `r.SetHeader("X-Tenant-ID"`)
 	assertContains(t, client, `r.SetHeader("X-Idempotency-Key"`)
+}
+
+func TestE2E_Client_CookieParams(t *testing.T) {
+	result := generateMultiFile(t, "request_params.yaml")
+	client := string(result.Client)
+
+	assertContains(t, client, `r.SetCookie(&http.Cookie{Name: "sid"`)
 }
 
 func TestE2E_Client_BodyEmbed(t *testing.T) {
@@ -870,6 +883,63 @@ func TestE2E_Config_DisableClient(t *testing.T) {
 	if result.Client != nil && len(result.Client) > 0 {
 		t.Error("expected no client code when generate_client is false")
 	}
+}
+
+func TestE2E_ClientImportSkipsCookieOnlyMultipartOperation(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "openapi.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: Cookie Multipart Client Import
+  version: "1.0.0"
+paths:
+  /upload:
+    post:
+      operationId: upload
+      parameters:
+        - name: sid
+          in: cookie
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	result, err := GenerateMulti(Config{
+		PackageName: "api",
+		SpecPath:    specPath,
+		Output:      OutputConfig{Types: "t.go", Client: "c.go"},
+		OutputOptions: OutputOptions{
+			SkipFmt: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti failed: %v", err)
+	}
+
+	client := string(result.Client)
+	assertNotContains(t, client, `"net/http"`)
+	assertNotContains(t, client, "SetCookie")
 }
 
 // ============================================================

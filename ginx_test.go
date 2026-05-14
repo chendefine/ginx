@@ -61,6 +61,10 @@ type intHeaderReq struct {
 	Token int `header:"X-Token" binding:"required"`
 }
 
+type intCookieReq struct {
+	SessionID int `cookie:"sid" binding:"required"`
+}
+
 type invalidQueryReq struct {
 	Page int `form:"page" binding:"required"`
 }
@@ -376,17 +380,65 @@ func TestMultiSourceBinding(t *testing.T) {
 		ID    string `uri:"id" binding:"required"`
 		Page  int    `form:"page" binding:"required,gt=0"`
 		Token string `header:"X-Token" binding:"required"`
+		SID   string `cookie:"sid" binding:"required"`
 	}) (*simpleRsp, error) {
-		return &simpleRsp{Message: req.ID + ":" + req.Token}, nil
+		return &simpleRsp{Message: req.ID + ":" + req.Token + ":" + req.SID}, nil
 	})
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/users/42?page=2", nil)
 	req.Header.Set("X-Token", "abc")
+	req.AddCookie(&http.Cookie{Name: "sid", Value: "s-1"})
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d", w.Code)
+	}
+}
+
+func TestCookieBinding(t *testing.T) {
+	r := gin.New()
+	GET(r, "/session", func(ctx context.Context, req *struct {
+		SessionID string `cookie:"sid" binding:"required"`
+		Theme     string `cookie:"theme"`
+	}) (*simpleRsp, error) {
+		return &simpleRsp{Message: req.SessionID + ":" + req.Theme}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/session", nil)
+	req.AddCookie(&http.Cookie{Name: "sid", Value: "s-1"})
+	req.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := mustDecodeBody(t, w.Body)
+	data := body["data"].(map[string]any)
+	if data["message"] != "s-1:dark" {
+		t.Fatalf("message=%v", data["message"])
+	}
+}
+
+func TestCookieBindingValidationErrorUsesCookieName(t *testing.T) {
+	r := gin.New()
+	GET(r, "/session", func(ctx context.Context, req *struct {
+		SessionID string `cookie:"sid" binding:"required"`
+	}) (*simpleRsp, error) {
+		return &simpleRsp{Message: req.SessionID}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/session", nil)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := mustDecodeBody(t, w.Body)
+	if body["msg"] != "sid is required" {
+		t.Fatalf("msg=%v", body["msg"])
 	}
 }
 
@@ -1664,6 +1716,22 @@ func TestHeaderBindingTypeErrorReturnsBadRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/header", nil)
 	req.Header.Set("X-Token", "bad")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestCookieBindingTypeErrorReturnsBadRequest(t *testing.T) {
+	r := gin.New()
+	GET(r, "/cookie", func(ctx context.Context, req *intCookieReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: strconv.Itoa(req.SessionID)}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/cookie", nil)
+	req.AddCookie(&http.Cookie{Name: "sid", Value: "bad"})
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {

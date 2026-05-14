@@ -2,6 +2,7 @@ package requestparams
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -23,16 +24,32 @@ func TestGetUser_PathAndQueryAndHeader(t *testing.T) {
 
 	fields := "name,email"
 	reqID := "req-123"
+	sid := "s-123"
 	rsp, err := client.GetUser(context.Background(), &GetUserReq{
 		UserID:     42,
 		Fields:     &fields,
 		XRequestID: &reqID,
+		Sid:        sid,
 	})
 	if err != nil {
 		t.Fatalf("GetUser: %v", err)
 	}
 	if rsp.ID == nil || *rsp.ID != 42 {
 		t.Errorf("ID = %v, want 42", rsp.ID)
+	}
+}
+
+func TestGetUser_CookieParamRequiredByServer(t *testing.T) {
+	r := gin.New()
+	RegisterRoutes(r, &TestService{})
+
+	req := httptest.NewRequest(http.MethodGet, "/users/42", nil)
+	req.Header.Set("X-Request-ID", "req-123")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

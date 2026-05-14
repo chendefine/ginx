@@ -21,6 +21,7 @@ func init() {
 		"pathParams":         filterPathParams,
 		"queryParams":        filterQueryParams,
 		"headerParams":       filterHeaderParams,
+		"cookieParams":       filterCookieParams,
 		"bodyFields":         filterBodyFields,
 		"tagValue":           tagValue,
 		"isPointerType":      isPointerType,
@@ -111,6 +112,22 @@ func filterHeaderParams(req *StructDef) []FieldDef {
 	for _, f := range req.Fields {
 		for _, t := range f.Tags {
 			if t.Key == "header" {
+				result = append(result, f)
+				break
+			}
+		}
+	}
+	return result
+}
+
+func filterCookieParams(req *StructDef) []FieldDef {
+	if req == nil {
+		return nil
+	}
+	var result []FieldDef
+	for _, f := range req.Fields {
+		for _, t := range f.Tags {
+			if t.Key == "cookie" {
 				result = append(result, f)
 				break
 			}

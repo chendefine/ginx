@@ -10,7 +10,7 @@ func(ctx context.Context, req *Req) (*Rsp, error)
 
 `ginx` 负责：
 
-- 多源请求绑定（header / uri / query / form / multipart / json）
+- 多源请求绑定（header / cookie / uri / query / form / multipart / json）
 - 默认值填充与参数校验
 - 统一成功 / 失败响应
 - 自定义成功包装、错误处理、校验错误处理、JSON 渲染
@@ -154,6 +154,7 @@ ginx.Any(r, "/ping", func(ctx context.Context, req *struct{}) (*struct {
 同一个 `Req` 可以同时从多个来源绑定：
 
 - `header:"X-Token"`
+- `cookie:"sid"`
 - `uri:"id"`
 - `form:"page"`（query / x-www-form-urlencoded / multipart）
 - `json:"name"`
@@ -164,6 +165,7 @@ ginx.Any(r, "/ping", func(ctx context.Context, req *struct{}) (*struct {
 type SearchReq struct {
 	UserID int64  `uri:"user_id" binding:"required"`
 	Token  string `header:"X-Token" binding:"required"`
+	SID    string `cookie:"sid" binding:"required"`
 	Page   int    `form:"page" binding:"gt=0"`
 	Size   int    `form:"size" binding:"gt=0,max=100"`
 	Word   string `json:"word"`
@@ -177,14 +179,17 @@ ginx.POST(r, "/users/:user_id/search", func(ctx context.Context, req *SearchReq)
 绑定顺序是：
 
 1. header
-2. uri
-3. query（带 `form` tag 的字段）
-4. body
+2. cookie
+3. uri
+4. query（带 `form` tag 的字段）
+5. body
    - `application/json` / `application/*+json`
    - `application/x-www-form-urlencoded`
    - `multipart/form-data`
 
 校验（`binding` tag）统一在所有绑定完成后执行，确保多源字段都能被校验到。
+
+`cookie` tag 适合绑定 OpenAPI `in: cookie` 这类请求参数。对于 session/auth token 这类敏感 cookie，仍建议优先在 middleware 或 interceptor 中读取并校验，然后通过 `ginx.Set(ctx, "uid", uid)` 传递认证结果，避免 token 混入业务 `Req` 后被日志或链路追踪误打出。
 
 ### 4.2 JSON Content-Type
 
@@ -890,11 +895,11 @@ go run ./examples/basic
 - `Set`
 - `MustGet`
 - `GetHeader`
+- `Cookie`
 - `SetHeader`
 - `AddHeader`
 - `ClientIP`
 - `Request`
-- `Cookie`
 - `SetCookie`
 - `GetValue[T]`
 

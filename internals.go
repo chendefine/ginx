@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -97,6 +98,11 @@ func bindRequest[Req any](gc *gin.Context, cfg resolved, plan *bindingPlan, req 
 			return err
 		}
 	}
+	if plan.hasCookie {
+		if err := bindCookies(gc, req); err != nil && !isValidationError(err) {
+			return err
+		}
+	}
 	if plan.hasURI {
 		if err := gc.ShouldBindUri(req); err != nil && !isValidationError(err) {
 			return err
@@ -123,6 +129,17 @@ func bindRequest[Req any](gc *gin.Context, cfg resolved, plan *bindingPlan, req 
 		}
 	}
 	return nil
+}
+
+func bindCookies(gc *gin.Context, obj any) error {
+	values := make(map[string][]string)
+	if gc != nil && gc.Request != nil {
+		for _, cookie := range gc.Request.Cookies() {
+			value, _ := url.QueryUnescape(cookie.Value)
+			values[cookie.Name] = append(values[cookie.Name], value)
+		}
+	}
+	return binding.MapFormWithTag(obj, values, "cookie")
 }
 
 func bindJSON[Req any](gc *gin.Context, cfg resolved, req *Req) error {
@@ -443,13 +460,14 @@ func writeSuccess(ctx context.Context, cfg resolved, rsp any) {
 // 避免对空 tag 的结构体做无意义的反射遍历.
 type bindingPlan struct {
 	hasHeader    bool              // 存在 `header:"..."`
+	hasCookie    bool              // 存在 `cookie:"..."`
 	hasURI       bool              // 存在 `uri:"..."`
 	hasForm      bool              // 存在 `form:"..."`, 用于 query/form-post/multipart
 	hasJSON      bool              // 存在 `json:"..."` 有效 name 或含嵌套结构
 	hasDefaults  bool              // 存在 `default:"..."`, 决定是否调用 defaults.Set
 	hasBinding   bool              // 存在 `binding:"..."`, 决定是否调用 ValidateStruct
 	isEmpty      bool              // Req 结构体零字段, 完全跳过绑定
-	fieldNameMap map[string]string // Go 字段名 -> tag 名, 用于校验错误提示, 优先级: json > form > uri > header
+	fieldNameMap map[string]string // Go 字段名 -> tag 名, 用于校验错误提示, 优先级: json > form > uri > header > cookie
 }
 
 var planCache sync.Map // reflect.Type -> *bindingPlan
@@ -496,7 +514,7 @@ func scanType(t reflect.Type, plan *bindingPlan, seen map[reflect.Type]struct{})
 			continue
 		}
 
-		// fieldNameMap: 优先级 json > form > uri > header
+		// fieldNameMap: 优先级 json > form > uri > header > cookie
 		mapped := false
 		if v, ok := f.Tag.Lookup("json"); ok {
 			name := v
@@ -531,6 +549,13 @@ func scanType(t reflect.Type, plan *bindingPlan, seen map[reflect.Type]struct{})
 		}
 		if v, ok := f.Tag.Lookup("header"); ok {
 			plan.hasHeader = true
+			if !mapped && v != "" {
+				plan.fieldNameMap[f.Name] = v
+				mapped = true
+			}
+		}
+		if v, ok := f.Tag.Lookup("cookie"); ok {
+			plan.hasCookie = true
 			if !mapped && v != "" {
 				plan.fieldNameMap[f.Name] = v
 			}

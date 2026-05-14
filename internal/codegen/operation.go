@@ -103,6 +103,8 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 			tags = append(tags, Tag{Key: "form", Value: param.Name})
 		case "header":
 			tags = append(tags, Tag{Key: "header", Value: param.Name})
+		case "cookie":
+			tags = append(tags, Tag{Key: "cookie", Value: param.Name})
 		}
 		if binding := buildBindingRules(required, param.Schema); binding != "" {
 			tags = append(tags, Tag{Key: "binding", Value: binding})
