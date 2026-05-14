@@ -23,6 +23,7 @@ func init() {
 		"headerParams":       filterHeaderParams,
 		"cookieParams":       filterCookieParams,
 		"bodyFields":         filterBodyFields,
+		"formBodyFields":     filterFormBodyFields,
 		"tagValue":           tagValue,
 		"isPointerType":      isPointerType,
 		"fmtValue":           fmtValue,
@@ -96,6 +97,9 @@ func filterQueryParams(req *StructDef) []FieldDef {
 	for _, f := range req.Fields {
 		for _, t := range f.Tags {
 			if t.Key == "form" {
+				if f.Source != "" && f.Source != fieldSourceQuery {
+					continue
+				}
 				result = append(result, f)
 				break
 			}
@@ -144,6 +148,25 @@ func filterBodyFields(req *StructDef) []FieldDef {
 	for _, f := range req.Fields {
 		for _, t := range f.Tags {
 			if t.Key == "json" {
+				result = append(result, f)
+				break
+			}
+		}
+	}
+	return result
+}
+
+func filterFormBodyFields(req *StructDef) []FieldDef {
+	if req == nil {
+		return nil
+	}
+	var result []FieldDef
+	for _, f := range req.Fields {
+		if f.Source != fieldSourceBody {
+			continue
+		}
+		for _, t := range f.Tags {
+			if t.Key == "form" {
 				result = append(result, f)
 				break
 			}

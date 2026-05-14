@@ -120,8 +120,32 @@ func (c *{{ $.ServerName }}Client) {{ .Name }}(ctx context.Context, req *{{ .Nam
 	r.SetBody(&req.{{ index .Request.Embeds 0 }})
 {{- else }}
 {{- $bodyFields := bodyFields .Request }}
+{{- $formBodyFields := formBodyFields .Request }}
 {{- $hasParams := or (or (pathParams .Request) (queryParams .Request)) (or (headerParams .Request) (cookieParams .Request)) }}
-{{- if and $bodyFields (not $hasParams) }}
+{{- if $formBodyFields }}
+	formData := map[string]string{
+{{- range $formBodyFields }}
+{{- if isPointerType . }}
+{{- else }}
+		"{{ tagValue . "form" }}": {{ fmtValue . }},
+{{- end }}
+{{- end }}
+	}
+{{- range $formBodyFields }}
+{{- if isPointerType . }}
+	if req.{{ .Name }} != nil {
+		formData["{{ tagValue . "form" }}"] = {{ fmtDerefValue . }}
+	}
+{{- end }}
+{{- end }}
+	if len(formData) > 0 {
+{{- if eq .Request.BodyContentType "multipart/form-data" }}
+		r.SetMultipartFormData(formData)
+{{- else }}
+		r.SetFormData(formData)
+{{- end }}
+	}
+{{- else if and $bodyFields (not $hasParams) }}
 	r.SetBody(req)
 {{- else if $bodyFields }}
 	r.SetBody(map[string]any{

@@ -12,18 +12,29 @@ type Tag struct {
 	Value string
 }
 
+const (
+	fieldSourceQuery = "query"
+	fieldSourceBody  = "body"
+)
+
 type FieldDef struct {
 	Name    string
 	Type    string
 	Tags    []Tag
 	Comment string
+
+	// Source is OpenAPI metadata used by client generation only. It must not
+	// change Gin's runtime tag semantics; for example, `form` still binds both
+	// query strings and form bodies on the server side.
+	Source string
 }
 
 type StructDef struct {
-	Name    string
-	Comment string
-	Fields  []FieldDef
-	Embeds  []string
+	Name            string
+	Comment         string
+	Fields          []FieldDef
+	Embeds          []string
+	BodyContentType string
 }
 
 type EnumDef struct {

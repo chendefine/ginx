@@ -76,6 +76,7 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 	var fields []FieldDef
 	var embeds []string
 	var extraTypes []TypeDef
+	var bodyContentType string
 
 	allParams := mergeParams(pathItem.Parameters, op.Parameters)
 	for _, paramRef := range allParams {
@@ -91,6 +92,10 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 			required = true
 		}
 
+		var source string
+		if param.In == "query" {
+			source = fieldSourceQuery
+		}
 		if !required && !isNilable(fieldType) {
 			fieldType = "*" + fieldType
 		}
@@ -114,21 +119,23 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 		}
 
 		fields = append(fields, FieldDef{
-			Name: fieldName,
-			Type: fieldType,
-			Tags: tags,
+			Name:   fieldName,
+			Type:   fieldType,
+			Tags:   tags,
+			Source: source,
 		})
 	}
 
 	if op.RequestBody != nil && op.RequestBody.Value != nil {
 		body := op.RequestBody.Value
 
-		// multipart/form-data (file upload)
 		if mt := body.Content.Get("multipart/form-data"); mt != nil && mt.Schema != nil && mt.Schema.Value != nil {
-			formFields, formExtra := buildFormDataFields(reqName, mt.Schema, imports, seen)
+			bodyContentType = "multipart/form-data"
+			formFields, formExtra := buildFormDataFields(reqName, mt.Schema, imports, seen, true)
 			fields = append(fields, formFields...)
 			extraTypes = append(extraTypes, formExtra...)
 		} else if mt := body.Content.Get("application/json"); mt != nil && mt.Schema != nil {
+			bodyContentType = "application/json"
 			if mt.Schema.Ref != "" {
 				embeds = append(embeds, refToTypeName(mt.Schema.Ref))
 			} else if mt.Schema.Value != nil {
@@ -145,12 +152,18 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 						tags = append(tags, Tag{Key: "binding", Value: "required"})
 					}
 					fields = append(fields, FieldDef{
-						Name: "Body",
-						Type: bodyType,
-						Tags: tags,
+						Name:   "Body",
+						Type:   bodyType,
+						Tags:   tags,
+						Source: fieldSourceBody,
 					})
 				}
 			}
+		} else if mt := body.Content.Get("application/x-www-form-urlencoded"); mt != nil && mt.Schema != nil && mt.Schema.Value != nil {
+			bodyContentType = "application/x-www-form-urlencoded"
+			formFields, formExtra := buildFormDataFields(reqName, mt.Schema, imports, seen, false)
+			fields = append(fields, formFields...)
+			extraTypes = append(extraTypes, formExtra...)
 		}
 	}
 
@@ -159,9 +172,10 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 	}
 
 	return &StructDef{
-		Name:   reqName,
-		Fields: fields,
-		Embeds: embeds,
+		Name:            reqName,
+		Fields:          fields,
+		Embeds:          embeds,
+		BodyContentType: bodyContentType,
 	}, extraTypes
 }
 
@@ -200,15 +214,16 @@ func flattenBodyFields(parentName string, schemaRef *openapi3.SchemaRef, imports
 		}
 
 		fields = append(fields, FieldDef{
-			Name: fieldName,
-			Type: fieldType,
-			Tags: tags,
+			Name:   fieldName,
+			Type:   fieldType,
+			Tags:   tags,
+			Source: fieldSourceBody,
 		})
 	}
 	return fields, extraTypes
 }
 
-func buildFormDataFields(parentName string, schemaRef *openapi3.SchemaRef, imports map[string]bool, seen map[string]bool) ([]FieldDef, []TypeDef) {
+func buildFormDataFields(parentName string, schemaRef *openapi3.SchemaRef, imports map[string]bool, seen map[string]bool, allowFiles bool) ([]FieldDef, []TypeDef) {
 	if schemaRef == nil || schemaRef.Value == nil {
 		return nil, nil
 	}
@@ -228,10 +243,10 @@ func buildFormDataFields(parentName string, schemaRef *openapi3.SchemaRef, impor
 		fieldName := ToCamelCase(propName)
 
 		var fieldType string
-		if isFileField(propRef) {
+		if allowFiles && isFileField(propRef) {
 			fieldType = "*multipart.FileHeader"
 			imports["mime/multipart"] = true
-		} else if isFileArrayField(propRef) {
+		} else if allowFiles && isFileArrayField(propRef) {
 			fieldType = "[]*multipart.FileHeader"
 			imports["mime/multipart"] = true
 		} else {
@@ -254,9 +269,10 @@ func buildFormDataFields(parentName string, schemaRef *openapi3.SchemaRef, impor
 		}
 
 		fields = append(fields, FieldDef{
-			Name: fieldName,
-			Type: fieldType,
-			Tags: tags,
+			Name:   fieldName,
+			Type:   fieldType,
+			Tags:   tags,
+			Source: fieldSourceBody,
 		})
 	}
 	return fields, extraTypes

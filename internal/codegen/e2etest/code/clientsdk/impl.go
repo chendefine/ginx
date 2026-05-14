@@ -35,6 +35,17 @@ func NewTestService() *TestService {
 
 func (s *TestService) Cleanup() { os.Remove(s.filePath) }
 
+func (s *TestService) CreateToken(ctx context.Context, req *CreateTokenReq) (*CreateTokenRsp, error) {
+	if ginx.GetHeader(ctx, "Content-Type") == "" {
+		return nil, ginx.Error(400, "expected form content type").Status(http.StatusBadRequest)
+	}
+	if req.Username != "alice" || req.Password != "secret" || req.Remember == nil || !*req.Remember {
+		return nil, ginx.Error(400, "invalid credentials").Status(http.StatusBadRequest)
+	}
+	token := "token-alice"
+	return &CreateTokenRsp{Token: &token}, nil
+}
+
 func (s *TestService) ListItems(_ context.Context, _ *ListItemsReq) (*ListItemsRsp, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

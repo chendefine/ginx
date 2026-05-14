@@ -20,6 +20,25 @@ func setupServer() (*httptest.Server, *Client, *TestService) {
 	return srv, NewClient(srv.URL), svc
 }
 
+func TestCreateTokenFormURLEncoded(t *testing.T) {
+	srv, client, svc := setupServer()
+	defer srv.Close()
+	defer svc.Cleanup()
+
+	remember := true
+	rsp, err := client.CreateToken(context.Background(), &CreateTokenReq{
+		Username: "alice",
+		Password: "secret",
+		Remember: &remember,
+	})
+	if err != nil {
+		t.Fatalf("CreateToken: %v", err)
+	}
+	if rsp.Token == nil || *rsp.Token != "token-alice" {
+		t.Fatalf("Token = %v, want token-alice", rsp.Token)
+	}
+}
+
 func TestCreateAndGetItem(t *testing.T) {
 	srv, client, svc := setupServer()
 	defer srv.Close()

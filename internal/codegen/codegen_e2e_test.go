@@ -283,6 +283,104 @@ func TestE2E_RequestParams_MultipartFileArray(t *testing.T) {
 	assertContains(t, code, "[]*multipart.FileHeader")
 }
 
+func TestE2E_RequestParams_FormURLEncodedBody(t *testing.T) {
+	code := generateSingleFile(t, "request_params.yaml")
+
+	assertContains(t, code, "type LoginReq struct")
+	assertContains(t, code, `Username string `+"`"+`form:"username" binding:"required"`+"`")
+	assertContains(t, code, `Password string `+"`"+`form:"password" binding:"required"`+"`")
+	assertContains(t, code, `Remember *bool `+"`"+`form:"remember"`+"`")
+}
+
+func TestE2E_RequestParams_FormURLEncodedBinaryIsNotFile(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "openapi.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: Form Binary Test
+  version: "1.0.0"
+paths:
+  /submit:
+    post:
+      operationId: submit
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                proof:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: ok
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti failed: %v", err)
+	}
+
+	code := string(result.Types)
+	assertContains(t, code, `Proof []byte `+"`"+`form:"proof"`+"`")
+	assertNotContains(t, code, `Proof *multipart.FileHeader `+"`"+`form:"proof"`+"`")
+}
+
+func TestE2E_RequestParams_JSONPreferredOverFormURLEncoded(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "openapi.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: JSON Preferred Test
+  version: "1.0.0"
+paths:
+  /submit:
+    post:
+      operationId: submit
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                form_name:
+                  type: string
+          application/json:
+            schema:
+              type: object
+              properties:
+                json_name:
+                  type: string
+      responses:
+        "200":
+          description: ok
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti failed: %v", err)
+	}
+
+	code := string(result.Types)
+	assertContains(t, code, `JSONName *string `+"`"+`json:"json_name"`+"`")
+	assertNotContains(t, code, `FormName *string `+"`"+`form:"form_name"`+"`")
+}
+
 func TestE2E_RequestParams_PathLevelParams(t *testing.T) {
 	code := generateSingleFile(t, "request_params.yaml")
 
@@ -574,6 +672,18 @@ func TestE2E_Client_BodyInlineWithParams(t *testing.T) {
 	client := string(result.Client)
 
 	assertContains(t, client, `"name": req.Name`)
+}
+
+func TestE2E_Client_FormURLEncodedBody(t *testing.T) {
+	result := generateMultiFile(t, "client_sdk.yaml")
+	types := string(result.Types)
+	client := string(result.Client)
+
+	assertContains(t, types, "type CreateTokenReq struct")
+	assertContains(t, types, `Username string `+"`"+`form:"username" binding:"required"`+"`")
+	assertContains(t, client, `r.SetFormData(formData)`)
+	assertContains(t, client, `"username": req.Username`)
+	assertNotContains(t, client, `r.SetQueryParam("username"`)
 }
 
 func TestE2E_Client_FileRspReturn(t *testing.T) {

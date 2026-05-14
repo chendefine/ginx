@@ -40,6 +40,14 @@ func (s *TestService) UploadBatch(_ context.Context, req *UploadBatchReq) (*Uplo
 	return &UploadBatchRsp{Count: &count}, nil
 }
 
+func (s *TestService) Login(_ context.Context, req *LoginReq) (*LoginRsp, error) {
+	token := req.Username + ":" + req.Password
+	if req.Remember != nil && *req.Remember {
+		token += ":remember"
+	}
+	return &LoginRsp{Token: &token}, nil
+}
+
 func (s *TestService) ListComments(_ context.Context, req *ListCommentsReq) (*ListCommentsRsp, error) {
 	var result ListCommentsRsp
 	result = append(result, map[string]any{"text": fmt.Sprintf("comment for %s", req.ItemID)})

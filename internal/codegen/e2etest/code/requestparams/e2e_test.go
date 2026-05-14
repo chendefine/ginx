@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +100,40 @@ func TestSearch_RequiredAndDefaultParams(t *testing.T) {
 	}
 	if rsp.Total == nil || *rsp.Total != 100 {
 		t.Errorf("Total = %v, want 100", rsp.Total)
+	}
+}
+
+func TestLogin_FormURLEncodedBody(t *testing.T) {
+	srv, client := setupServer()
+	defer srv.Close()
+
+	remember := true
+	rsp, err := client.Login(context.Background(), &LoginReq{
+		Username: "alice",
+		Password: "secret",
+		Remember: &remember,
+	})
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if rsp.Token == nil || *rsp.Token != "alice:secret:remember" {
+		t.Fatalf("Token = %v, want alice:secret:remember", rsp.Token)
+	}
+}
+
+func TestLogin_FormTagStillBindsQueryString(t *testing.T) {
+	r := gin.New()
+	RegisterRoutes(r, &TestService{})
+
+	req := httptest.NewRequest(http.MethodPost, "/login?username=alice&password=secret&remember=true", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "alice:secret:remember") {
+		t.Fatalf("body=%s, want token from query-bound form fields", w.Body.String())
 	}
 }
 
