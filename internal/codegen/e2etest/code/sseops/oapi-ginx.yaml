@@ -1,0 +1,6 @@
+package: sseops
+spec: ../../spec/sse_operations.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

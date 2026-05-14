@@ -1,0 +1,6 @@
+package: validation
+spec: ../../spec/validation.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

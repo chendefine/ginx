@@ -1,0 +1,100 @@
+openapi: "3.0.3"
+info:
+  title: Validation Rules Test
+  version: "1.0.0"
+paths:
+  /validate:
+    post:
+      operationId: createValidated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, status, score]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                email:
+                  type: string
+                  format: email
+                website:
+                  type: string
+                  format: uri
+                uuid_field:
+                  type: string
+                  format: uuid
+                ipv4_field:
+                  type: string
+                  format: ipv4
+                ipv6_field:
+                  type: string
+                  format: ipv6
+                hostname_field:
+                  type: string
+                  format: hostname
+                status:
+                  type: string
+                  enum: [active, inactive, banned]
+                score:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                rating:
+                  type: number
+                  exclusiveMinimum: true
+                  minimum: 0
+                  exclusiveMaximum: true
+                  maximum: 5
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+                  maxItems: 10
+                  uniqueItems: true
+                phone:
+                  type: string
+                  x-binding: "e164"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+  /defaults:
+    get:
+      operationId: listWithDefaults
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: "created_at"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
