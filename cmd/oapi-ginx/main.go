@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chendefine/ginx/cmd/oapi-ginx/codegen"
+	"github.com/chendefine/ginx/internal/codegen"
 )
 
 const initConfig = `# oapi-ginx configuration

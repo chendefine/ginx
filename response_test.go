@@ -47,7 +47,7 @@ func TestStringResponseWithoutArgsKeepsOriginalBody(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 
 	format := "literal %s"
-	rsp := StringResponse(http.StatusCreated, format)
+	rsp := StringResponse(http.StatusCreated, format) // no args, should not format
 	if err := rsp.WriteTo(c); err != nil {
 		t.Fatalf("WriteTo err=%v", err)
 	}

@@ -2,7 +2,6 @@ package ginx
 
 import (
 	"context"
-	"net/http"
 	"reflect"
 	"sync"
 
@@ -251,9 +250,3 @@ func engineOf(r gin.IRoutes) (gin.IRoutes, *Engine) {
 	}
 	return r, defaultEngine
 }
-
-// 预留: Engine 级默认 error http 状态码.
-const (
-	defaultErrHttpStatus = http.StatusInternalServerError
-	defaultBadReqStatus  = http.StatusBadRequest
-)

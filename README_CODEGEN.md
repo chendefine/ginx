@@ -385,8 +385,9 @@ if err != nil {
 ### 跳过的 Operation
 
 以下类型的 operation 不会生成客户端方法：
-- SSE（Server-Sent Events）— 流式推送需要不同的调用模式
 - multipart/form-data 文件上传 — 需要特殊处理
+
+SSE（Server-Sent Events）operation 会生成返回 `*ginx.SSEStream` 的客户端方法，调用方通过 `Recv()` 拉取事件，并在结束时调用 `Close()`。
 
 ### server_name 前缀
 
@@ -706,7 +707,7 @@ func (s *PetService) CreatePet(ctx context.Context, req *CreatePetReq) (*CreateP
 
 func (s *PetService) GetPet(ctx context.Context, req *GetPetReq) (*GetPetRsp, error) {
     // req.PetID 来自 URI path
-    return nil, ginx.Error(1002, "pet not found", 404)
+    return nil, ginx.Error(1002, "pet not found").Status(404)
 }
 ```
 

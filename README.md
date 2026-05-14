@@ -29,7 +29,7 @@ go get github.com/chendefine/ginx
 
 要求：
 
-- Go 1.21+
+- Go 1.25+
 - Gin 1.9+
 
 ---
@@ -792,7 +792,7 @@ func HTTPCreateUser(ctx context.Context, req *CreateUserReq) (*CreateUserRsp, er
 
 ## 17. demo
 
-仓库中的 `demo/main.go` 展示了：
+仓库中的 `examples/basic/main.go` 展示了：
 
 - Engine 级配置
 - 普通 JSON 路由
@@ -806,7 +806,7 @@ func HTTPCreateUser(ctx context.Context, req *CreateUserReq) (*CreateUserRsp, er
 运行：
 
 ```bash
-go run ./demo/main.go
+go run ./examples/basic
 ```
 
 服务默认监听 `:8081`。

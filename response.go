@@ -58,11 +58,10 @@ type StringRsp struct {
 	Body string
 }
 
-// StringResponse 构造纯文本响应. format/args 会在这里就完成 Sprintf.
-func StringResponse(code int, format string, args ...any) *StringRsp {
-	body := format
+// StringResponse 构造纯文本响应. body/args 会在这里就完成 Sprintf.
+func StringResponse(code int, body string, args ...any) *StringRsp {
 	if len(args) > 0 {
-		body = fmt.Sprintf(format, args...)
+		body = fmt.Sprintf(body, args...)
 	}
 	return &StringRsp{Code: code, Body: body}
 }

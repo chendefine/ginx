@@ -93,6 +93,64 @@ func TestParseResponse_NoDataWrap_Success(t *testing.T) {
 	}
 }
 
+func TestParseResponse_NoDataWrap_CodeFieldOnly(t *testing.T) {
+	body := []byte(`{"code":0,"name":"direct"}`)
+	var result struct {
+		Code int    `json:"code"`
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result.Code != 0 || result.Name != "direct" {
+		t.Errorf("unexpected result: %+v", result)
+	}
+}
+
+func TestParseResponse_NoDataWrap_NonZeroCodeFieldOnly(t *testing.T) {
+	body := []byte(`{"code":42,"name":"direct"}`)
+	var result struct {
+		Code int    `json:"code"`
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result.Code != 42 || result.Name != "direct" {
+		t.Errorf("unexpected result: %+v", result)
+	}
+}
+
+func TestParseResponse_DataWrap_NullData(t *testing.T) {
+	body := []byte(`{"code":0,"msg":"ok","data":null}`)
+	var result *struct {
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil result, got %+v", result)
+	}
+}
+
+func TestParseResponse_DataWrap_ZeroCodeWithoutData(t *testing.T) {
+	body := []byte(`{"code":0,"msg":"ok"}`)
+	var result struct {
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result.Name != "" {
+		t.Errorf("expected zero result, got %+v", result)
+	}
+}
+
 func TestParseResponse_NoDataWrap_HTTPError(t *testing.T) {
 	body := []byte(`some error text`)
 	err := ParseResponse(502, body, nil)
@@ -130,5 +188,21 @@ func TestParseResponse_ArrayResponse(t *testing.T) {
 	}
 	if len(result) != 2 {
 		t.Errorf("expected 2 items, got %d", len(result))
+	}
+}
+
+func TestParseResponse_InvalidWrapperCodeFallsBackToBody(t *testing.T) {
+	body := []byte(`{"code":"ok","msg":"not a wrapper","name":"direct"}`)
+	var result struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Name string `json:"name"`
+	}
+	err := ParseResponse(200, body, &result)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if result.Code != "ok" || result.Msg != "not a wrapper" || result.Name != "direct" {
+		t.Errorf("unexpected result: %+v", result)
 	}
 }
