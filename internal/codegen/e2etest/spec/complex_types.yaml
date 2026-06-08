@@ -10,6 +10,9 @@ components:
     Priority:
       type: integer
       enum: [1, 2, 3]
+    SpecialEnum:
+      type: string
+      enum: ["foo@bar", "a+b", "hello#world", "normal"]
     Pet:
       type: object
       required: [id, name, status]

@@ -3,6 +3,7 @@ package codegen
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"golang.org/x/tools/imports"
@@ -180,6 +181,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 				clientImports["strings"] = true
 				clientImports["net/url"] = true
 			}
+			if hasClientTimeParameters(ops) {
+				clientImports["time"] = true
+			}
 			clientCode, err := executeClientTemplate(&clientTemplateData{
 				PackageName:       pkgName,
 				GenerateDirective: cfg.GenerateDirective,
@@ -207,6 +211,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 			if hasSSEOperations(ops) {
 				importsMap["strings"] = true
 				importsMap["net/url"] = true
+			}
+			if hasClientTimeParameters(ops) {
+				importsMap["time"] = true
 			}
 			allImports = sortedImports(importsMap)
 		}
@@ -262,55 +269,67 @@ func filterTypesImports(all map[string]bool) map[string]bool {
 	return result
 }
 
+func unwrapType(goType string) (prefix, inner string) {
+	if strings.HasPrefix(goType, "[]") {
+		p, i := unwrapType(goType[2:])
+		return "[]" + p, i
+	}
+	if strings.HasPrefix(goType, "*") {
+		p, i := unwrapType(goType[1:])
+		return "*" + p, i
+	}
+	if strings.HasPrefix(goType, "map[") {
+		idx := strings.Index(goType, "]")
+		if idx > 0 {
+			p, i := unwrapType(goType[idx+1:])
+			return goType[:idx+1] + p, i
+		}
+	}
+	return "", goType
+}
+
 func applyTypeMapping(td *TypeDef, mapping map[string]string, imports map[string]bool) {
+	rewrite := func(goType string) string {
+		if replacement, ok := mapping[goType]; ok {
+			addImportForType(replacement, imports)
+			return replacement
+		}
+		prefix, inner := unwrapType(goType)
+		if replacement, ok := mapping[inner]; ok {
+			addImportForType(replacement, imports)
+			return prefix + replacement
+		}
+		return goType
+	}
 	if td.Struct != nil {
 		for i, f := range td.Struct.Fields {
-			if replacement, ok := mapping[f.Type]; ok {
-				td.Struct.Fields[i].Type = replacement
-				addImportForType(replacement, imports)
-				continue
-			}
-			trimmed := f.Type
-			if len(trimmed) > 0 && trimmed[0] == '*' {
-				trimmed = trimmed[1:]
-			}
-			if replacement, ok := mapping[trimmed]; ok {
-				if f.Type[0] == '*' {
-					td.Struct.Fields[i].Type = "*" + replacement
-				} else {
-					td.Struct.Fields[i].Type = replacement
-				}
-				addImportForType(replacement, imports)
-			}
+			td.Struct.Fields[i].Type = rewrite(f.Type)
 		}
 	}
 	if td.Alias != nil {
-		if replacement, ok := mapping[td.Alias.TargetType]; ok {
-			td.Alias.TargetType = replacement
-			addImportForType(replacement, imports)
-		}
+		td.Alias.TargetType = rewrite(td.Alias.TargetType)
 	}
 }
 
 func applyTypeMappingExt(td *TypeDef, mapping map[string]TypeMappingExt, imports map[string]bool) {
 	rewrite := func(goType string) string {
-		if m, ok := mapping[goType]; ok && m.Type != "" {
-			if m.Import != "" {
-				imports[m.Import] = true
-			} else {
-				addImportForType(m.Type, imports)
-			}
-			return m.Type
-		}
-		if len(goType) > 0 && goType[0] == '*' {
-			if m, ok := mapping[goType[1:]]; ok && m.Type != "" {
+		lookup := func(key string) (string, bool) {
+			if m, ok := mapping[key]; ok && m.Type != "" {
 				if m.Import != "" {
 					imports[m.Import] = true
 				} else {
 					addImportForType(m.Type, imports)
 				}
-				return "*" + m.Type
+				return m.Type, true
 			}
+			return "", false
+		}
+		if replacement, ok := lookup(goType); ok {
+			return replacement
+		}
+		prefix, inner := unwrapType(goType)
+		if replacement, ok := lookup(inner); ok {
+			return prefix + replacement
 		}
 		return goType
 	}
@@ -377,6 +396,33 @@ func hasClientCookieParameters(ops []OperationDef) bool {
 		}
 		if len(filterCookieParams(op.Request)) > 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func hasClientTimeParameters(ops []OperationDef) bool {
+	for _, op := range ops {
+		if !op.IsSSE && skipForClient(op) {
+			continue
+		}
+		if op.Request == nil {
+			continue
+		}
+		for _, f := range filterQueryParams(op.Request) {
+			if strings.Contains(f.Type, "time.Time") {
+				return true
+			}
+		}
+		for _, f := range filterPathParams(op.Request) {
+			if strings.Contains(f.Type, "time.Time") {
+				return true
+			}
+		}
+		for _, f := range filterHeaderParams(op.Request) {
+			if strings.Contains(f.Type, "time.Time") {
+				return true
+			}
 		}
 	}
 	return false

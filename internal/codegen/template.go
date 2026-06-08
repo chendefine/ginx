@@ -203,6 +203,8 @@ func fmtValue(f FieldDef) string {
 		return fmt.Sprintf("fmt.Sprintf(\"%%t\", req.%s)", f.Name)
 	case "float32", "float64":
 		return fmt.Sprintf("fmt.Sprintf(\"%%g\", req.%s)", f.Name)
+	case "time.Time":
+		return "req." + f.Name + ".Format(time.RFC3339)"
 	default:
 		return fmt.Sprintf("fmt.Sprintf(\"%%v\", req.%s)", f.Name)
 	}
@@ -223,6 +225,8 @@ func fmtDerefValue(f FieldDef) string {
 		return fmt.Sprintf("fmt.Sprintf(\"%%t\", *req.%s)", f.Name)
 	case "float32", "float64":
 		return fmt.Sprintf("fmt.Sprintf(\"%%g\", *req.%s)", f.Name)
+	case "time.Time":
+		return "req." + f.Name + ".Format(time.RFC3339)"
 	default:
 		return fmt.Sprintf("fmt.Sprintf(\"%%v\", *req.%s)", f.Name)
 	}

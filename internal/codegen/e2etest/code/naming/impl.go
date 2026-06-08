@@ -19,4 +19,8 @@ func (s *TestService) PostNoOperationIDResourceID(_ context.Context, req *PostNo
 	return &PostNoOperationIDResourceIDRsp{ID: &req.ResourceID}, nil
 }
 
+func (s *TestService) GetNumericSchemaRef(_ context.Context, _ *GetNumericSchemaRefReq) (*GetNumericSchemaRefRsp, error) {
+	return &GetNumericSchemaRefRsp{Code: 0}, nil
+}
+
 var _ ServerInterface = (*TestService)(nil)

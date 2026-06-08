@@ -27,6 +27,11 @@ paths:
           schema:
             type: integer
             format: int32
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
         - name: X-Tenant-ID
           in: header
           required: true

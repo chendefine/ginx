@@ -20,6 +20,16 @@ components:
         duration:
           type: integer
           format: int64
+        timestamps:
+          type: array
+          items:
+            type: string
+            format: date-time
+        schedule:
+          type: object
+          additionalProperties:
+            type: string
+            format: date-time
 paths:
   /events:
     get:

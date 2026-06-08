@@ -87,6 +87,8 @@ func splitWords(s string) []string {
 				}
 			}
 			current = append(current, r)
+		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
+			flush()
 		default:
 			current = append(current, r)
 		}

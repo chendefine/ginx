@@ -145,6 +145,22 @@ func TestE2E_ComplexTypes_Enum(t *testing.T) {
 	assertContains(t, code, "Priority3 Priority = 3")
 }
 
+func TestE2E_ComplexTypes_EnumSpecialChars(t *testing.T) {
+	code := generateSingleFile(t, "complex_types.yaml")
+
+	assertContains(t, code, "type SpecialEnum string")
+	assertContains(t, code, `SpecialEnumFooBar SpecialEnum = "foo@bar"`)
+	assertContains(t, code, `SpecialEnumAB SpecialEnum = "a+b"`)
+	assertContains(t, code, `SpecialEnumHelloWorld SpecialEnum = "hello#world"`)
+	assertContains(t, code, `SpecialEnumNormal SpecialEnum = "normal"`)
+
+	// 验证生成的代码可以通过 go/format 解析（即合法 Go 代码）
+	_, err := format.Source([]byte(code))
+	if err != nil {
+		t.Fatalf("generated code with special char enums is not valid Go: %v", err)
+	}
+}
+
 func TestE2E_ComplexTypes_Object(t *testing.T) {
 	code := generateSingleFile(t, "complex_types.yaml")
 
@@ -645,6 +661,14 @@ func TestE2E_Client_QueryParams(t *testing.T) {
 	assertContains(t, client, "if req.Page != nil")
 }
 
+func TestE2E_Client_TimeParam(t *testing.T) {
+	result := generateMultiFile(t, "client_sdk.yaml")
+	client := string(result.Client)
+
+	assertContains(t, client, `"time"`)
+	assertContains(t, client, ".Format(time.RFC3339)")
+}
+
 func TestE2E_Client_HeaderParams(t *testing.T) {
 	result := generateMultiFile(t, "client_sdk.yaml")
 	client := string(result.Client)
@@ -946,6 +970,8 @@ func TestE2E_Config_TypeMapping(t *testing.T) {
 	assertContains(t, code, "CreatedAt string")
 	assertContains(t, code, "ID MyInt64")
 	assertNotContains(t, code, "time.Time")
+	assertContains(t, code, "Timestamps []string")
+	assertContains(t, code, "Schedule map[string]string")
 }
 
 func TestE2E_Config_TypeMappingExt(t *testing.T) {
@@ -958,6 +984,8 @@ func TestE2E_Config_TypeMappingExt(t *testing.T) {
 	assertContains(t, code, `"cloud.google.com/go/civil"`)
 	assertContains(t, code, "CreatedAt civil.DateTime")
 	assertContains(t, code, "UpdatedAt *civil.DateTime")
+	assertContains(t, code, "Timestamps []civil.DateTime")
+	assertContains(t, code, "Schedule map[string]civil.DateTime")
 }
 
 // ============================================================
@@ -1419,4 +1447,36 @@ func TestE2E_ValidGo_SingleFileCombined(t *testing.T) {
 		t.Fatalf("GenerateMulti failed: %v", err)
 	}
 	assertValidGo(t, string(result.Types))
+}
+
+func TestIsBinaryContentType(t *testing.T) {
+	tests := []struct {
+		ct   string
+		want bool
+	}{
+		{"application/octet-stream", true},
+		{"application/pdf", true},
+		{"application/zip", true},
+		{"image/png", true},
+		{"audio/mpeg", true},
+		{"video/mp4", true},
+		{"application/json", false},
+		{"application/xml", false},
+		{"application/x-www-form-urlencoded", false},
+		{"application/graphql", false},
+		{"application/ld+json", false},
+		{"application/merge-patch+json", false},
+		{"application/problem+json", false},
+		{"application/soap+xml", false},
+		{"text/plain", false},
+		{"text/html", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ct, func(t *testing.T) {
+			got := isBinaryContentType(tt.ct)
+			if got != tt.want {
+				t.Errorf("isBinaryContentType(%q) = %v, want %v", tt.ct, got, tt.want)
+			}
+		})
+	}
 }

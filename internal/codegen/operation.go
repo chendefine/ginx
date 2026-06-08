@@ -525,7 +525,14 @@ func isBinaryContentType(ct string) bool {
 	if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "audio/") || strings.HasPrefix(ct, "video/") {
 		return true
 	}
-	if strings.HasPrefix(ct, "application/") && ct != "application/json" && ct != "application/xml" {
+	if strings.HasPrefix(ct, "application/") {
+		if ct == "application/json" || ct == "application/xml" ||
+			ct == "application/x-www-form-urlencoded" ||
+			ct == "application/graphql" ||
+			strings.HasSuffix(ct, "+json") ||
+			strings.HasSuffix(ct, "+xml") {
+			return false
+		}
 		return true
 	}
 	return false
