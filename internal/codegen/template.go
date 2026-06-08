@@ -30,7 +30,6 @@ func init() {
 		"fmtDerefValue":      fmtDerefValue,
 		"clientRspType":      clientRspType,
 		"clientRspSignature": clientRspSignature,
-		"skipForClient":      skipForClient,
 		"zeroReturn":         zeroReturn,
 		"successReturn":      successReturn,
 		"needsResult":        needsResult,
@@ -236,7 +235,7 @@ func clientRspType(op OperationDef) string {
 	switch op.RspTypeName {
 	case "struct{}", "ginx.RedirectRsp":
 		return ""
-	case "ginx.FileRsp":
+	case "ginx.FileRsp", "ginx.DataRsp":
 		return "[]byte"
 	case "ginx.StringRsp":
 		return "string"
@@ -253,7 +252,7 @@ func clientRspSignature(op OperationDef) string {
 	return "(" + rspType + ", error)"
 }
 
-func skipForClient(op OperationDef) bool {
+func hasMultipartFileFields(op OperationDef) bool {
 	if op.Request != nil {
 		for _, f := range op.Request.Fields {
 			if strings.Contains(f.Type, "multipart.FileHeader") {
@@ -266,7 +265,7 @@ func skipForClient(op OperationDef) bool {
 
 func needsResult(op OperationDef) bool {
 	switch op.RspTypeName {
-	case "struct{}", "ginx.RedirectRsp", "ginx.FileRsp", "ginx.StringRsp":
+	case "struct{}", "ginx.RedirectRsp", "ginx.FileRsp", "ginx.DataRsp", "ginx.StringRsp":
 		return false
 	default:
 		return true
@@ -274,7 +273,7 @@ func needsResult(op OperationDef) bool {
 }
 
 func isFileRsp(op OperationDef) bool {
-	return op.RspTypeName == "ginx.FileRsp"
+	return op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.DataRsp"
 }
 
 func isStringRsp(op OperationDef) bool {
@@ -307,7 +306,7 @@ func successReturn(op OperationDef) string {
 	switch op.RspTypeName {
 	case "struct{}", "ginx.RedirectRsp":
 		return "nil"
-	case "ginx.FileRsp":
+	case "ginx.FileRsp", "ginx.DataRsp":
 		return "resp.Bytes(), nil"
 	case "ginx.StringRsp":
 		return "resp.String(), nil"

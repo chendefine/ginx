@@ -201,6 +201,16 @@ ginx 支持：
   - `application/merge-patch+json`
   - `application/problem+json`
 
+默认 JSON 解析保持宽松兼容：成功解析第一个 JSON 值后，不额外检查 body 后面是否还有第二个 JSON token。公网 API 建议开启严格模式：
+
+```go
+engine := ginx.New(ginx.WithStrictJSONBody(true))
+// 或包级默认 Engine:
+ginx.SetStrictJSONBody(true)
+```
+
+开启后，`{"name":"alice"} {"name":"bob"}` 这类 trailing JSON token 会按绑定错误返回；空 body 仍交给后续 validator 处理 `required` 字段。
+
 ### 4.3 multipart 上传
 
 只要在结构体中声明 `*multipart.FileHeader` 即可：
@@ -290,6 +300,8 @@ engine := ginx.New(
 ```
 
 如果返回的 `httpStatus <= 0`，会回退到默认处理。
+
+如果只是想复用 ginx 的默认 validator 文案，同时自定义响应结构，可以调用 `ginx.FormatValidationError(err, namer)`。`namer` 为 nil 时使用 Go 字段名；需要按项目规则映射字段名时，可在这里处理。
 
 ---
 
@@ -415,7 +427,16 @@ return nil, errors.New("boom")
 
 默认 HTTP 状态码为 500。
 
-注意：普通 `error` 的默认响应会直接包含 `err.Error()`。公网 API 或可能携带内部细节的服务，建议使用 `WithErrorHandler(...)` 统一做脱敏和错误码映射。
+注意：普通 `error` 的默认响应会直接包含 `err.Error()`，这是为了保持历史兼容。公网 API 或可能携带内部细节的服务，建议关闭原始错误暴露：
+
+```go
+engine := ginx.New(
+	ginx.WithExposeInternalError(false),
+	ginx.WithInternalErrorMessage("internal error"),
+)
+```
+
+如果需要按错误类型映射业务码和 HTTP 状态，仍建议使用 `WithErrorHandler(...)` 完全接管普通 `error`。
 
 ### 7.5 Sentinel 错误比较
 
@@ -497,6 +518,7 @@ ginx.GET(r, "/users/:id", GetUser,
 说明：
 
 - interceptor 的 `req` / `rsp` 是类型擦除的 `any`
+- `next()` 在单次请求中只能调用一次；重复调用会 panic，避免意外重复执行 handler 或跳过中间层
 - 返回值必须与当前 handler 声明的响应类型一致，也就是返回 `*Rsp` 或 `nil`
 - 如果返回了不匹配的类型，ginx 会以 panic 抛出，便于在开发 / 测试阶段尽早暴露编程错误
 - 更适合日志、审计、鉴权、包裹 `next()` 前后的通用逻辑，而不是改写成任意响应类型
@@ -531,11 +553,29 @@ ginx.GET(api, "/users/:id", GetUser)
 api := engine.Group(r, "/api/v1")
 ```
 
+配置快照语义：
+
+- 每条路由在注册时会固化当时的 Engine 配置
+- `engine.Configure(...)`、包级 `Configure(...)` 或 `Set*` 只影响之后注册的路由
+- 启动流程应先创建并配置 Engine，再注册路由，最后启动 HTTP server
+- 不建议在服务运行期动态切换 Engine 配置；需要不同策略时创建多个独立 Engine
+
+```go
+engine := ginx.New()
+engine.Configure(ginx.WithStrictJSONBody(true))
+
+api := engine.Wrap(r.Group("/api"))
+ginx.POST(api, "/users", CreateUser)
+```
+
 ### 9.1 可用的 Engine 选项
 
 - `WithDataWrap(bool)`：控制成功响应是否包装，默认 `true`
 - `WithInvalidArgCode(int)`：参数校验失败的业务 code，默认 `1`
 - `WithInternalErrorCode(int)`：普通 error 的业务 code，默认 `2`
+- `WithStrictJSONBody(bool)`：严格 JSON body 解析，默认 `false`
+- `WithExposeInternalError(bool)`：普通 error 是否暴露 `err.Error()`，默认 `true`
+- `WithInternalErrorMessage(string)`：设置普通 error 脱敏文案，并关闭原始错误暴露
 - `WithErrorHandler(...)`
 - `WithValidationErrorHandler(...)`
 - `WithSuccessHandler(...)`
@@ -553,6 +593,9 @@ ginx.SetDataWrap(false)
 ginx.SetInvalidArgumentCode(4001)
 ginx.SetInternalServerErrorCode(5001)
 ginx.SetJsonDecoderUseNumber(true)
+ginx.SetStrictJSONBody(true)
+ginx.SetExposeInternalError(false)
+ginx.SetInternalErrorMessage("internal error")
 ```
 
 这些配置会影响直接调用 `ginx.GET/POST/...` 时使用的默认 Engine。
@@ -560,6 +603,7 @@ ginx.SetJsonDecoderUseNumber(true)
 注意：
 
 - `Set*` 修改的是进程内共享默认 Engine
+- `Set*` 同样只影响之后注册的路由
 - 推荐只在启动期集中设置一次，不建议在运行期或不同测试用例中交叉修改
 - 如果希望不同模块拥有不同配置，请显式创建多个 `Engine`
 
@@ -574,6 +618,16 @@ ginx.SetJsonDecoderUseNumber(true)
 - `ginx` 在 JSON body 路径中使用自己的 `json.Decoder`，而不是依赖 Gin 的全局 `binding.EnableDecoderUseNumber`
 - 这样做是为了让 `UseNumber` 成为 Engine 级配置，避免不同模块或测试之间互相污染
 - 这是有意识的实例级隔离取舍，而不是简单沿用框架全局默认值
+
+### 9.4 严格 JSON body
+
+`WithStrictJSONBody(true)` / `SetStrictJSONBody(true)` 会在第一次 JSON decode 成功后继续检查额外 token。它适合公网 API、网关后服务和需要拒绝歧义 body 的场景。
+
+该选项默认关闭，以免破坏已有客户端发送 trailing whitespace 以外内容时的兼容行为。开启后：
+
+- 正常 JSON object / array / scalar 可通过
+- 空 body 仍交给 validator 处理
+- 第二个 JSON value 会返回绑定错误
 
 ---
 
@@ -624,6 +678,7 @@ engine := ginx.New(
 约束：
 
 - interceptor 应返回 `next()` 的原始结果，或与 handler 声明的 `*Rsp` 类型一致的值（或 `nil`）
+- `next()` 只能调用一次，重复调用会 panic
 - 如果返回值类型与 handler 声明的 `*Rsp` 不匹配，ginx 会以 panic 抛出，便于在开发 / 测试阶段尽早暴露编程错误
 
 适合：
@@ -666,6 +721,8 @@ return ginx.RedirectResponse(http.StatusFound, "/login"), nil
 ```
 
 如果 `WriteTo()` 返回错误，ginx 会把错误记录进 `gin.Context.Errors`，方便上层 Gin middleware 统一处理。
+
+`StringResponse`、`DataResponse`、`RedirectResponse` 构造函数会把非法 HTTP status 回退到合理默认值（文本/字节为 200，重定向为 302）。如果直接手动构造 `StringRsp`、`DataRsp`、`RedirectRsp` 并填入非法状态码，`WriteTo()` 仍会把该值交给 Gin；生产代码建议优先使用构造函数。
 
 ---
 
@@ -782,6 +839,8 @@ engine := ginx.New(
 - 业务层优先使用标准 `context.Context`
 - 需要 Gin 专属能力时，在 handler 边界尽早取出
 - 中大型项目优先使用独立 `Engine`
+- 所有 `With*/Set*` 在路由注册前完成，注册后修改只影响后续路由
+- 公网服务建议开启 `WithStrictJSONBody(true)`，并用 `WithExposeInternalError(false)` 或 `WithErrorHandler(...)` 统一脱敏普通错误
 - 复杂错误映射与国际化场景通过自定义 handler 接管
 - SSE 应视为基础能力，而不是完整流式基础设施
 
@@ -851,6 +910,7 @@ go run ./examples/basic
 - `RegisterHook` — 路由注册回调签名
 - `ErrorHandler` — 自定义错误处理签名
 - `ValidationErrorHandler` — 自定义校验错误处理签名
+- `ValidationFieldNamer` — 校验错误字段名映射签名
 - `SuccessHandler` — 自定义成功响应处理签名
 - `JSONRenderer` — 自定义 JSON 渲染签名
 
@@ -859,6 +919,9 @@ go run ./examples/basic
 - `WithDataWrap`
 - `WithInvalidArgCode`
 - `WithInternalErrorCode`
+- `WithStrictJSONBody`
+- `WithExposeInternalError`
+- `WithInternalErrorMessage`
 - `WithErrorHandler`
 - `WithValidationErrorHandler`
 - `WithSuccessHandler`
@@ -880,6 +943,7 @@ go run ./examples/basic
 - `DataResponse`
 - `FileResponse`
 - `RedirectResponse`
+- `FormatValidationError`
 
 ### Error helper
 
@@ -910,6 +974,7 @@ go run ./examples/basic
 ### Engine
 
 - `New`
+- `(*Engine).Configure`
 - `(*Engine).Wrap`
 - `(*Engine).Group`
 - `Default`
@@ -922,6 +987,9 @@ go run ./examples/basic
 - `SetInvalidArgumentCode`
 - `SetInternalServerErrorCode`
 - `SetJsonDecoderUseNumber`
+- `SetStrictJSONBody`
+- `SetExposeInternalError`
+- `SetInternalErrorMessage`
 
 ---
 

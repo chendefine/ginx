@@ -15,7 +15,7 @@ func validateComponentTypeNames(spec *openapi3.T) error {
 	for _, name := range sortedSchemaNames(spec.Components.Schemas) {
 		goName := ToIdentifier(name)
 		if prev, ok := seen[goName]; ok && prev != name {
-			return fmt.Errorf("type name conflict: schemas %q and %q both generate %s", prev, name, goName)
+			return fmt.Errorf("type name conflict: schemas %q and %q both generate %s; rename one schema or add a type_mapping/type_mapping_ext override", prev, name, goName)
 		}
 		seen[goName] = name
 	}
@@ -28,7 +28,7 @@ func validateOperationNames(ops []OperationDef) error {
 	for _, op := range ops {
 		source := op.Method + " " + op.Path
 		if prev, ok := seenOps[op.Name]; ok && prev != source {
-			return fmt.Errorf("operation name conflict: %s and %s both generate %s", prev, source, op.Name)
+			return fmt.Errorf("operation name conflict: %s and %s both generate %s; set unique operationId values", prev, source, op.Name)
 		}
 		seenOps[op.Name] = source
 
@@ -37,9 +37,21 @@ func validateOperationNames(ops []OperationDef) error {
 				continue
 			}
 			if prev, ok := seenTypes[name]; ok && prev != source {
-				return fmt.Errorf("generated type conflict: %s and %s both generate %s", prev, source, name)
+				return fmt.Errorf("generated type conflict: %s and %s both generate %s; set unique operationId values or rename schemas", prev, source, name)
 			}
 			seenTypes[name] = source
+		}
+	}
+	return nil
+}
+
+func validateClientOperations(ops []OperationDef) error {
+	for _, op := range ops {
+		if op.IsSSE {
+			continue
+		}
+		if hasMultipartFileFields(op) {
+			return fmt.Errorf("client generation does not support multipart file upload for operation %s (%s %s); generate server/types only or model a dedicated client upload API", op.Name, op.Method, op.Path)
 		}
 	}
 	return nil
@@ -51,7 +63,7 @@ func validateTypeDefs(types []TypeDef) error {
 		name, kind := typeDefName(td)
 		if name != "" {
 			if prev, ok := seenTypes[name]; ok {
-				return fmt.Errorf("generated type conflict: %s and %s both generate %s", prev, kind, name)
+				return fmt.Errorf("generated type conflict: %s and %s both generate %s; rename schemas or adjust operationId values", prev, kind, name)
 			}
 			seenTypes[name] = kind
 		}
@@ -86,14 +98,14 @@ func validateStructDef(st *StructDef) error {
 	seen := make(map[string]string)
 	for _, embed := range st.Embeds {
 		if prev, ok := seen[embed]; ok {
-			return fmt.Errorf("field name conflict in %s: %q and %q both generate %s", st.Name, prev, embed, embed)
+			return fmt.Errorf("field name conflict in %s: %q and %q both generate %s; rename the OpenAPI fields or split the schema", st.Name, prev, embed, embed)
 		}
 		seen[embed] = embed
 	}
 	for _, field := range st.Fields {
 		source := fieldSourceName(field)
 		if prev, ok := seen[field.Name]; ok && prev != source {
-			return fmt.Errorf("field name conflict in %s: %q and %q both generate %s", st.Name, prev, source, field.Name)
+			return fmt.Errorf("field name conflict in %s: %q and %q both generate %s; rename one OpenAPI field", st.Name, prev, source, field.Name)
 		}
 		seen[field.Name] = source
 	}
@@ -104,7 +116,7 @@ func validateEnumDef(enum *EnumDef) error {
 	seen := make(map[string]string)
 	for _, value := range enum.Values {
 		if prev, ok := seen[value.Name]; ok && prev != value.Value {
-			return fmt.Errorf("enum const conflict in %s: values %s and %s both generate %s", enum.TypeName, prev, value.Value, value.Name)
+			return fmt.Errorf("enum const conflict in %s: values %s and %s both generate %s; rename one enum value", enum.TypeName, prev, value.Value, value.Name)
 		}
 		seen[value.Name] = value.Value
 	}

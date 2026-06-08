@@ -37,6 +37,10 @@ paths:
           required: true
           schema:
             type: string
+        - name: sid
+          in: cookie
+          schema:
+            type: string
       responses:
         "200":
           description: ok
@@ -187,30 +191,6 @@ paths:
       responses:
         "302":
           description: Redirect
-  /items/upload:
-    post:
-      operationId: uploadItemImage
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [image]
-              properties:
-                image:
-                  type: string
-                  format: binary
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  url:
-                    type: string
   /auth/token:
     post:
       operationId: createToken

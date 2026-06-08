@@ -99,6 +99,7 @@ func TestCLI_InitOutputsExampleConfig(t *testing.T) {
 		"package: api",
 		"output:",
 		"generate_server: true",
+		"generate_client: false",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("init output missing %q:\n%s", want, text)

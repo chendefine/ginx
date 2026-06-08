@@ -84,6 +84,8 @@ output_options:
   generate_client: true     # 是否生成 HTTP 客户端 SDK
 ```
 
+兼容说明：顶层 `generate_server` 仍可读取，但已废弃；新配置请使用 `output_options.generate_server`。如果两者同时出现，`output_options.generate_server` 优先。
+
 ### 输出模式
 
 **单文件模式**：所有类型、接口、路由注册代码生成到一个文件中。
@@ -204,7 +206,9 @@ type UpdatePetReq struct {
 
 根据成功 response 的状态码和 content-type 自动选择响应类型：
 
-- 优先选择最小的 `2xx` 响应状态码
+- 默认选择最小的 `2xx` 响应状态码
+- 如果多个 `2xx` JSON 响应 schema 不一致，生成器会报错，避免误选成功响应
+- 可在某个 `2xx` response 上设置 `x-ginx-primary-response: true` 明确主成功响应
 - `application/json` 优先生成 `{OperationName}Rsp`
 - 非 JSON 成功响应按 binary/text 分类
 - `204 No Content` 或无 content 的 `2xx` 响应生成 `struct{}`
@@ -218,6 +222,34 @@ type UpdatePetReq struct {
 | text/event-stream | SSE 模式（无响应类型） |
 | 仅 3xx 响应（无 2xx） | `ginx.RedirectRsp` |
 | 204 No Content | `struct{}` |
+
+### 响应扩展字段
+
+当 content-type 无法表达业务意图时，可使用 `x-ginx-response` 覆盖响应类型。该扩展可放在 operation 上，也可放在具体 response 上；response 级优先。
+
+```yaml
+/download:
+  get:
+    operationId: download
+    responses:
+      "200":
+        description: raw bytes in memory
+        x-ginx-response: data
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+```
+
+支持值：
+
+| `x-ginx-response` | 生成类型 |
+|---|---|
+| `file` | `ginx.FileRsp` |
+| `string` | `ginx.StringRsp` |
+| `data` | `ginx.DataRsp` |
+| `redirect` | `ginx.RedirectRsp` |
 
 当 JSON 响应 schema 是 `$ref` 时，生成类型别名：
 ```go
@@ -379,12 +411,15 @@ func main() {
 
 可选参数（指针类型）在值为 nil 时自动跳过。非 string 类型参数自动使用 `fmt.Sprintf` 转换。
 
+SSE 客户端因直接拼接 EventSource URL，会对 path 参数额外执行 `url.PathEscape`。
+
 ### 响应处理
 
 | 服务端响应类型 | 客户端返回值 |
 |---|---|
 | JSON 结构体 | `(*RspType, error)` |
 | `ginx.FileRsp` | `([]byte, error)` |
+| `ginx.DataRsp` | `([]byte, error)` |
 | `ginx.StringRsp` | `(string, error)` |
 | `ginx.RedirectRsp` | `error` |
 | `struct{}`（204） | `error` |
@@ -404,12 +439,15 @@ if err != nil {
 }
 ```
 
-### 跳过的 Operation
+### 当前限制
 
-以下类型的 operation 不会生成客户端方法：
-- multipart/form-data 文件上传 — 需要特殊处理
+multipart/form-data 文件上传服务端绑定已支持，但客户端 SDK 暂不生成文件上传方法。只要启用 client 生成且 spec 中包含 `type: string, format: binary` 的 multipart 字段，生成器会直接失败并指出 operation 名称，避免客户端接口中静默缺失方法。
+
+如果项目需要上传客户端，建议先将上传 API 单独拆到 server/types 生成，或后续基于明确的 `io.Reader` / 文件路径模型扩展生成器。
 
 SSE（Server-Sent Events）operation 会生成返回 `*ginx.SSEStream` 的客户端方法，调用方通过 `Recv()` 拉取事件，并在结束时调用 `Close()`。
+
+SSE 客户端会对 path 参数执行 `url.PathEscape`，query/header/cookie 参数沿用普通客户端规则。
 
 ### server_name 前缀
 
@@ -531,6 +569,35 @@ generate_directive: "go run github.com/chendefine/ginx/cmd/oapi-ginx -c oapi-gin
 ```bash
 go generate ./...
 ```
+
+## AI / Code Agent 使用指南
+
+当你让 AI 或 code agent 基于 OpenAPI 接入 ginx，推荐按这个顺序执行：
+
+1. 先阅读 `oapi-ginx.yaml` 和 OpenAPI spec，确认 `package`、`output`、`server_name`、tag 过滤和是否生成 client。
+2. 运行 `go run github.com/chendefine/ginx/cmd/oapi-ginx -c oapi-ginx.yaml` 或项目约定的 `go generate ./...`。
+3. 在生成包中实现 `ServerInterface`，handler 签名保持 `context.Context, *Req -> (*Rsp, error)`。
+4. 在 Gin 启动代码中调用 `RegisterRoutes(r, svc, opts...)`；如果需要统一策略，先创建并配置 `ginx.Engine`，再用 `engine.Wrap(...)` 注册。
+5. 如果启用 client SDK，优先通过 `NewClient(baseURL, opts...)` 注入 resty timeout/auth/retry。
+6. 运行 `go test ./...`；修改 codegen 模板后，先跑 `./scripts/test-codegen-e2e.sh` 再跑全量测试。
+
+常见注意点：
+
+- 不要手改 `*.gen.go`，应改 spec、配置或生成器模板。
+- 多个 `2xx` JSON 响应 schema 不一致时，添加 `x-ginx-primary-response: true` 或调整 spec。
+- 二进制内存响应用 `x-ginx-response: data`，文件下载用 `file`。
+- multipart 文件上传客户端暂不生成；服务端类型仍是 `*multipart.FileHeader` / `[]*multipart.FileHeader`。
+- 旧顶层 `generate_server` 只为兼容保留，新配置写到 `output_options.generate_server`。
+
+## 当前边界
+
+oapi-ginx 只生成 Go 类型、ginx 服务端接口/路由、可选 resty 客户端和可选 spec embed。它不负责：
+
+- 完整 OpenAPI 文档站点或 Swagger UI 服务
+- union/oneOf 强类型模型
+- 鉴权、DI、ORM、数据库访问代码
+- tracing/metrics SDK 初始化
+- multipart 文件上传客户端 SDK
 
 ## 完整示例
 

@@ -86,6 +86,30 @@ func TestStreamRoomMessages_PathParam(t *testing.T) {
 	}
 }
 
+func TestStreamRoomMessages_PathParamEscaped(t *testing.T) {
+	srv, client := setupServer()
+	defer srv.Close()
+
+	roomID := "room 42+with space"
+	stream, err := client.StreamRoomMessages(context.Background(), &StreamRoomMessagesReq{
+		RoomID:     roomID,
+		XAuthToken: "auth-xyz",
+	})
+	if err != nil {
+		t.Fatalf("StreamRoomMessages: %v", err)
+	}
+	defer stream.Close()
+
+	evt, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	data, ok := evt.Data.(string)
+	if !ok || !strings.Contains(data, `"room":"`+roomID+`"`) {
+		t.Fatalf("Data = %v, expected escaped room echo", evt.Data)
+	}
+}
+
 func TestStreamEvents_CloseEarly(t *testing.T) {
 	srv, client := setupServer()
 	defer srv.Close()

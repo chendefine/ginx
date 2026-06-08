@@ -114,6 +114,18 @@ func TestDataResponseWriteTo(t *testing.T) {
 	}
 }
 
+func TestResponseConstructorsNormalizeInvalidStatus(t *testing.T) {
+	if got := StringResponse(99, "bad").Code; got != http.StatusOK {
+		t.Fatalf("string status=%d", got)
+	}
+	if got := DataResponse(600, "application/octet-stream", nil).Code; got != http.StatusOK {
+		t.Fatalf("data status=%d", got)
+	}
+	if got := RedirectResponse(0, "/target").Code; got != http.StatusFound {
+		t.Fatalf("redirect status=%d", got)
+	}
+}
+
 func TestFileResponseConstructor(t *testing.T) {
 	rsp := FileResponse("/tmp/test.pdf", "report.pdf")
 	if rsp.FilePath != "/tmp/test.pdf" || rsp.FileName != "report.pdf" {

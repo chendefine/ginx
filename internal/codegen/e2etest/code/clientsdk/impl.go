@@ -120,11 +120,6 @@ func (s *TestService) RedirectToItems(_ context.Context, _ *RedirectToItemsReq) 
 	return ginx.RedirectResponse(http.StatusFound, "/items"), nil
 }
 
-func (s *TestService) UploadItemImage(_ context.Context, _ *UploadItemImageReq) (*UploadItemImageRsp, error) {
-	url := "https://cdn.example.com/uploaded.png"
-	return &UploadItemImageRsp{URL: &url}, nil
-}
-
 var _ ServerInterface = (*TestService)(nil)
 
 func intPtr(v int) *int       { return &v }

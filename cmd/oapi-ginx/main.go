@@ -42,6 +42,7 @@ output:
 # output_options:
 #   skip_fmt: false
 #   generate_server: true
+#   generate_client: false
 `
 
 func main() {

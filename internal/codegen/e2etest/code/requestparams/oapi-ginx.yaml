@@ -3,4 +3,5 @@ spec: ../../spec/request_params.yaml
 output:
   types: types.gen.go
   server: server.gen.go
-  client: client.gen.go
+output_options:
+  generate_client: false

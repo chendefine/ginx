@@ -157,6 +157,16 @@ func bindJSON[Req any](gc *gin.Context, cfg resolved, req *Req) error {
 		}
 		return err
 	}
+	if cfg.strictJSONBody {
+		var extra any
+		if err := decoder.Decode(&extra); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		return errors.New("ginx: JSON body must contain only one value")
+	}
 	return nil
 }
 
@@ -312,26 +322,43 @@ var validationMessages = map[string]validationMessage{
 }
 
 func sanitizeValidationError(err error, fieldNameMap map[string]string) string {
+	return FormatValidationError(err, func(fe validator.FieldError) string {
+		field := fe.Field()
+		if tagName, ok := fieldNameMap[field]; ok && tagName != "" {
+			return tagName
+		}
+		return field
+	})
+}
+
+// ValidationFieldNamer 将 validator 字段错误映射为对外展示字段名.
+type ValidationFieldNamer func(validator.FieldError) string
+
+// FormatValidationError 使用 ginx 内置 validation 文案格式化 validator 错误.
+// namer 为 nil 时使用 Go 字段名; 调用方可在 WithValidationErrorHandler 中复用该函数做字段名映射.
+func FormatValidationError(err error, namer ValidationFieldNamer) string {
 	var ve validator.ValidationErrors
 	if !errors.As(err, &ve) || len(ve) == 0 {
 		return err.Error()
 	}
 
 	if len(ve) == 1 {
-		return formatFieldError(ve[0], fieldNameMap)
+		return formatFieldError(ve[0], namer)
 	}
 
 	msgs := make([]string, len(ve))
 	for i, fe := range ve {
-		msgs[i] = formatFieldError(fe, fieldNameMap)
+		msgs[i] = formatFieldError(fe, namer)
 	}
 	return strings.Join(msgs, "; ")
 }
 
-func formatFieldError(fe validator.FieldError, fieldNameMap map[string]string) string {
+func formatFieldError(fe validator.FieldError, namer ValidationFieldNamer) string {
 	field := fe.Field()
-	if tagName, ok := fieldNameMap[field]; ok && tagName != "" {
-		field = tagName
+	if namer != nil {
+		if name := namer(fe); name != "" {
+			field = name
+		}
 	}
 	if message, ok := validationMessages[fe.Tag()]; ok {
 		if message.withParam {
@@ -355,7 +382,15 @@ func invokeHandler[Req, Rsp any](ctx context.Context, req *Req, interceptors []I
 		}
 		ic := interceptors[idx]
 		idx++
-		return ic(ctx, req, call)
+		nextCalled := false
+		next := func() (any, error) {
+			if nextCalled {
+				panic("ginx: interceptor next() called more than once for one request handler")
+			}
+			nextCalled = true
+			return call()
+		}
+		return ic(ctx, req, next)
 	}
 	result, err := call()
 	if err != nil {
@@ -428,7 +463,14 @@ func writeError(ctx context.Context, cfg resolved, err error) {
 		}
 	}
 
-	cfg.jsonRenderer(gc, status, successBody{Code: cfg.internalErrorCode, Msg: err.Error()})
+	msg := err.Error()
+	if !cfg.exposeInternalError {
+		msg = cfg.internalErrorMessage
+		if msg == "" {
+			msg = http.StatusText(http.StatusInternalServerError)
+		}
+	}
+	cfg.jsonRenderer(gc, status, successBody{Code: cfg.internalErrorCode, Msg: msg})
 	gc.Abort()
 }
 

@@ -506,6 +506,120 @@ func TestE2E_ResponseTypes_EmptyResponse(t *testing.T) {
 	assertContains(t, server, "GetEmpty(ctx context.Context, req *GetEmptyReq) (*struct{}, error)")
 }
 
+func TestE2E_ResponseTypes_XGinxResponseOverride(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "response_override.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: Response Override
+  version: "1.0.0"
+paths:
+  /bytes:
+    get:
+      operationId: getBytes
+      responses:
+        "200":
+          description: bytes
+          x-ginx-response: data
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /file:
+    get:
+      operationId: getFile
+      x-ginx-response: file
+      responses:
+        "200":
+          description: file
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ignored:
+                    type: string
+  /text:
+    get:
+      operationId: getText
+      responses:
+        "200":
+          description: text
+          x-ginx-response: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ignored:
+                    type: string
+  /redirect:
+    get:
+      operationId: getRedirect
+      responses:
+        "200":
+          description: redirect
+          x-ginx-response: redirect
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ignored:
+                    type: string
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		Output:        OutputConfig{Types: "types.go", Server: "server.go", Client: "client.go"},
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti: %v", err)
+	}
+	server := string(result.Server)
+	client := string(result.Client)
+	types := string(result.Types)
+	assertContains(t, server, "GetBytes(ctx context.Context, req *GetBytesReq) (*ginx.DataRsp, error)")
+	assertContains(t, server, "GetFile(ctx context.Context, req *GetFileReq) (*ginx.FileRsp, error)")
+	assertContains(t, server, "GetText(ctx context.Context, req *GetTextReq) (*ginx.StringRsp, error)")
+	assertContains(t, server, "GetRedirect(ctx context.Context, req *GetRedirectReq) (*ginx.RedirectRsp, error)")
+	assertContains(t, client, "GetBytes(ctx context.Context, req *GetBytesReq) ([]byte, error)")
+	assertNotContains(t, types, "GetFileRsp")
+	assertNotContains(t, types, "GetTextRsp")
+	assertNotContains(t, types, "GetRedirectRsp")
+}
+
+func TestE2E_ResponseTypes_InvalidXGinxResponseReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "bad_response_override.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: Bad Response Override
+  version: "1.0.0"
+paths:
+  /bad:
+    get:
+      operationId: bad
+      responses:
+        "200":
+          description: bad
+          x-ginx-response: stream
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	_, err := GenerateMulti(Config{PackageName: "api", SpecPath: specPath, OutputOptions: OutputOptions{SkipFmt: true}})
+	if err == nil || !strings.Contains(err.Error(), `x-ginx-response="stream" is unsupported`) {
+		t.Fatalf("GenerateMulti error = %v, want invalid x-ginx-response", err)
+	}
+}
+
 // ============================================================
 // Module 5: Validation Rules
 // ============================================================
@@ -678,7 +792,7 @@ func TestE2E_Client_HeaderParams(t *testing.T) {
 }
 
 func TestE2E_Client_CookieParams(t *testing.T) {
-	result := generateMultiFile(t, "request_params.yaml")
+	result := generateMultiFile(t, "client_sdk.yaml")
 	client := string(result.Client)
 
 	assertContains(t, client, `r.SetCookie(&http.Cookie{Name: "sid"`)
@@ -740,11 +854,43 @@ func TestE2E_Client_RedirectReturn(t *testing.T) {
 	assertContains(t, client, "func (c *Client) RedirectToItems(ctx context.Context, req *RedirectToItemsReq) error")
 }
 
-func TestE2E_Client_SkipMultipart(t *testing.T) {
-	result := generateMultiFile(t, "client_sdk.yaml")
-	client := string(result.Client)
+func TestE2E_Client_MultipartUploadFailsClearly(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "multipart.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: Multipart Client
+  version: "1.0.0"
+paths:
+  /upload:
+    post:
+      operationId: uploadItemImage
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: ok
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
 
-	assertNotContains(t, client, "UploadItemImage")
+	_, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		Output:        OutputConfig{Types: "types.go", Client: "client.go"},
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err == nil || !strings.Contains(err.Error(), "client generation does not support multipart file upload for operation UploadItemImage") {
+		t.Fatalf("GenerateMulti error = %v, want multipart client unsupported", err)
+	}
 }
 
 func TestE2E_Client_HTTPMethods(t *testing.T) {
@@ -805,7 +951,7 @@ func TestE2E_SSE_ClientPathParam(t *testing.T) {
 	result := generateMultiFile(t, "sse_operations.yaml")
 	client := string(result.Client)
 
-	assertContains(t, client, `strings.Replace(sseURL, "{room_id}", req.RoomID, 1)`)
+	assertContains(t, client, `strings.Replace(sseURL, "{room_id}", url.PathEscape(req.RoomID), 1)`)
 }
 
 func TestE2E_SSE_ClientQueryParam(t *testing.T) {
@@ -1030,7 +1176,7 @@ func TestE2E_Config_DisableClient(t *testing.T) {
 	}
 }
 
-func TestE2E_ClientImportSkipsCookieOnlyMultipartOperation(t *testing.T) {
+func TestE2E_ClientCookieMultipartOperationFailsBeforeImportGeneration(t *testing.T) {
 	dir := t.TempDir()
 	specPath := filepath.Join(dir, "openapi.yaml")
 	spec := `openapi: "3.0.3"
@@ -1070,7 +1216,7 @@ paths:
 		t.Fatalf("write spec: %v", err)
 	}
 
-	result, err := GenerateMulti(Config{
+	_, err := GenerateMulti(Config{
 		PackageName: "api",
 		SpecPath:    specPath,
 		Output:      OutputConfig{Types: "t.go", Client: "c.go"},
@@ -1079,12 +1225,12 @@ paths:
 		},
 	})
 	if err != nil {
-		t.Fatalf("GenerateMulti failed: %v", err)
+		if strings.Contains(err.Error(), "client generation does not support multipart file upload for operation Upload") {
+			return
+		}
+		t.Fatalf("GenerateMulti error = %v, want multipart client unsupported", err)
 	}
-
-	client := string(result.Client)
-	assertNotContains(t, client, `"net/http"`)
-	assertNotContains(t, client, "SetCookie")
+	t.Fatalf("GenerateMulti succeeded, want multipart client unsupported")
 }
 
 // ============================================================
@@ -1294,6 +1440,141 @@ paths:
 	assertContains(t, server, "RedirectOnly(ctx context.Context, req *RedirectOnlyReq) (*ginx.RedirectRsp, error)")
 }
 
+func TestE2E_Multiple2xxJSONSameSchemaAllowed(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "same_schema.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Same Schema
+  version: 1.0.0
+paths:
+  /jobs:
+    post:
+      operationId: createJob
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+        "202":
+          description: accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		Output:        OutputConfig{Types: "types.go", Server: "server.go"},
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti: %v", err)
+	}
+	assertContains(t, string(result.Server), "CreateJob(ctx context.Context, req *CreateJobReq) (*CreateJobRsp, error)")
+}
+
+func TestE2E_Multiple2xxJSONDifferentSchemaFails(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "different_schema.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Different Schema
+  version: 1.0.0
+paths:
+  /jobs:
+    post:
+      operationId: createJob
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+        "202":
+          description: accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	_, err := GenerateMulti(Config{PackageName: "api", SpecPath: specPath, OutputOptions: OutputOptions{SkipFmt: true}})
+	if err == nil || !strings.Contains(err.Error(), "multiple 2xx JSON responses have different schemas") {
+		t.Fatalf("GenerateMulti error = %v, want multiple 2xx schema error", err)
+	}
+}
+
+func TestE2E_Multiple2xxPrimaryResponseOverridesSelection(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "primary_response.yaml")
+	spec := `openapi: 3.0.3
+info:
+  title: Primary Response
+  version: 1.0.0
+paths:
+  /jobs:
+    post:
+      operationId: createJob
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+        "202":
+          description: accepted
+          x-ginx-primary-response: true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	result, err := GenerateMulti(Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		Output:        OutputConfig{Types: "types.go", Server: "server.go"},
+		OutputOptions: OutputOptions{SkipFmt: true},
+	})
+	if err != nil {
+		t.Fatalf("GenerateMulti: %v", err)
+	}
+	types := string(result.Types)
+	assertContains(t, types, "JobID *string")
+	assertNotContains(t, types, "\tID *string")
+}
+
 func TestE2E_FormatErrorIsReturned(t *testing.T) {
 	dir := t.TempDir()
 	specPath := filepath.Join(dir, "badfmt.yaml")
@@ -1356,6 +1637,9 @@ paths: {}
 	_, err := GenerateMulti(Config{PackageName: "api", SpecPath: specPath, OutputOptions: OutputOptions{SkipFmt: true}})
 	if err == nil || !strings.Contains(err.Error(), "type name conflict") {
 		t.Fatalf("GenerateMulti error = %v, want type name conflict", err)
+	}
+	if !strings.Contains(err.Error(), "rename one schema") && !strings.Contains(err.Error(), "type_mapping") {
+		t.Fatalf("GenerateMulti error = %v, want actionable schema conflict guidance", err)
 	}
 }
 

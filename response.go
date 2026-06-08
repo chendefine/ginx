@@ -2,6 +2,7 @@ package ginx
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,6 +42,7 @@ type RedirectRsp struct {
 
 // RedirectResponse 构造重定向响应.
 func RedirectResponse(code int, location string) *RedirectRsp {
+	code = normalizeHTTPStatus(code, http.StatusFound)
 	return &RedirectRsp{Code: code, Location: location}
 }
 
@@ -60,6 +62,7 @@ type StringRsp struct {
 
 // StringResponse 构造纯文本响应. body/args 会在这里就完成 Sprintf.
 func StringResponse(code int, body string, args ...any) *StringRsp {
+	code = normalizeHTTPStatus(code, http.StatusOK)
 	if len(args) > 0 {
 		body = fmt.Sprintf(body, args...)
 	}
@@ -83,6 +86,7 @@ type DataRsp struct {
 
 // DataResponse 构造原始字节响应.
 func DataResponse(code int, contentType string, data []byte) *DataRsp {
+	code = normalizeHTTPStatus(code, http.StatusOK)
 	return &DataRsp{Code: code, ContentType: contentType, Data: data}
 }
 
@@ -90,4 +94,11 @@ func DataResponse(code int, contentType string, data []byte) *DataRsp {
 func (r *DataRsp) WriteTo(c *gin.Context) error {
 	c.Data(r.Code, r.ContentType, r.Data)
 	return nil
+}
+
+func normalizeHTTPStatus(code, fallback int) int {
+	if code >= 100 && code <= 599 {
+		return code
+	}
+	return fallback
 }

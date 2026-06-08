@@ -1,58 +1,75 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file gives code agents the current working context for this repository.
 
-## Project Overview
+## Project
 
-ginx is a type-safe HTTP handler wrapper for the Gin web framework, using Go 1.18+ generics. It provides unified request binding (from headers, URI, query, and JSON body) and standardized error/response wrapping.
+`github.com/chendefine/ginx` is a type-safe adapter layer on top of Gin. Runtime handlers use:
 
-## Build & Development Commands
+```go
+func(ctx context.Context, req *Req) (*Rsp, error)
+```
+
+`ginx` handles multi-source binding, validation, response wrapping, non-JSON responses, SSE, interceptors, and optional OpenAPI code generation.
+
+Go version is `go 1.25` in `go.mod`.
+
+## Commands
 
 ```bash
-# Build
-go build ./...
-
-# Run demo server (listens on :8081)
-go run ./demo/main.go
-
-# Test
 go test ./...
-
-# Format
-go fmt ./...
-
-# Module maintenance
-go mod tidy
+go test ./internal/codegen -count=1
+./scripts/test-codegen-e2e.sh
+go run ./examples/basic
+go run ./cmd/oapi-ginx -c path/to/oapi-ginx.yaml
 ```
 
-## Architecture
+Run `./scripts/test-codegen-e2e.sh` after changing codegen templates or generated fixture specs. The script deletes stale `*.gen.go` files before regenerating.
 
-**Single-package library** (`github.com/chendefine/ginx`) with these core files:
+## Runtime Architecture
 
-- **ginx.go** — Entry point. Generic handler functions (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) that accept `func(*Context, *Req) (*Rsp, error)` signatures. Contains `makeHandlerFunc()` which does multi-source binding (header → URI → query → JSON body) and response wrapping logic.
-- **context.go** — `Context` wrapper around `*gin.Context` that implements `context.Context` interface. Exposes a controlled surface (Get/Set, headers, cookies, ClientIP, Request). `GetValue[T]()` provides generic type-safe value retrieval. Use `GinContext()` as the explicit escape hatch to access the underlying `*gin.Context`.
-- **response.go** — `Response` interface for non-JSON responses. When a handler returns a type implementing `Response`, it bypasses default JSON serialization. Built-in implementations: `FileRsp`, `RedirectRsp`, `StringRsp`, `DataRsp`.
-- **error.go** — `ErrWrap` type for structured errors with application code, message, and optional HTTP status override. `Error()` constructor and `Format()` for message formatting.
+- `ginx.go`: public registration functions (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `Any`, `Handle`, `SSE`) and core handler/SSE types.
+- `engine.go`: `Engine`, `EngineOption`, route options, config snapshot resolution, package-level default engine.
+- `internals.go`: binding plan cache, request binding, validation formatting, handler invocation, error/success response writing.
+- `context.go`: helpers around `context.Context` and the underlying `*gin.Context`.
+- `response.go`: non-JSON response interface and helpers (`FileRsp`, `RedirectRsp`, `StringRsp`, `DataRsp`).
+- `error.go`: `ErrWrap`, `Error`, `Status`, `Format`, `errors.Is` support.
+- `client.go`: generated-client response parsing and SSE stream client wrapper.
 
-## Key Patterns
+Important runtime semantics:
 
-**Handler registration** uses generics with struct tag-based binding:
-```go
-ginx.GET(router, "/path/:id", func(ctx *ginx.Context, req *MyReq) (*MyRsp, error) {
-    return &MyRsp{}, nil
-})
-```
+- Engine config is snapshotted when a route is registered. `Configure`, `Set*`, and `(*Engine).Configure` affect only routes registered later.
+- Prefer independent `ginx.New(...)` engines in tests and real services. Package-level `Set*` mutates shared default state.
+- Strict JSON is opt-in via `WithStrictJSONBody(true)` / `SetStrictJSONBody(true)`.
+- Plain `error` still exposes `err.Error()` by default for compatibility. Public services should use `WithExposeInternalError(false)`, `WithInternalErrorMessage(...)`, or `WithErrorHandler(...)`.
+- Interceptor `next()` can be called once. Repeated calls panic. Interceptors must return `*Rsp` or `nil`.
+- `StringResponse`, `DataResponse`, and `RedirectResponse` normalize invalid status codes; direct struct literals do not.
 
-**Request structs** use tags for multi-source binding: `uri:"id"`, `header:"X-Token"`, `form:"page"`, `json:"body"`, with validation via `binding:"required"`.
+## Codegen Architecture
 
-**HandleOption constants** control behavior: `DataWrap`, `NoDataWrap`, `StatusCodeAlwaysOK`.
+- CLI entry: `cmd/oapi-ginx/main.go`
+- Config: `internal/codegen/config.go`
+- OpenAPI operation extraction: `internal/codegen/operation.go`
+- Schema/type generation: `internal/codegen/schema.go`, `typemap.go`, `naming.go`, `validation.go`
+- Validation of generated names/client support: `internal/codegen/validate.go`
+- Templates: `internal/codegen/templates/*.tmpl`
+- Tests: `internal/codegen/codegen_e2e_test.go` plus `internal/codegen/e2etest`
 
-**Error responses** use `ginx.Error(code, msg, optionalHttpCode)`. If `HttpCode` is in 101–599, it's used as the HTTP status; otherwise defaults to 500.
+Current codegen behavior:
 
-**Response interface**: Return `*FileRsp`, `*RedirectRsp`, `*StringRsp`, or `*DataRsp` (or any `Response` implementor) from handlers to bypass JSON wrapping entirely.
+- Generates request/response types, `ServerInterface`, `RegisterRoutes`, optional resty client SDK, optional compressed spec embed.
+- Supports multi-file output (`types`, `server`, `client`, `spec`) and single-file output.
+- `output_options.generate_server` is the preferred server toggle. Top-level `generate_server` is deprecated but still supported.
+- `x-ginx-sse: true` or `text/event-stream` creates SSE server/client methods.
+- `x-ginx-response: file|string|data|redirect` overrides response classification.
+- Multiple `2xx` JSON responses with different schemas fail generation unless one response has `x-ginx-primary-response: true`.
+- Multipart file upload server types are supported, but client generation fails clearly for multipart file upload operations.
+- SSE client path params are URL path escaped.
 
-**Global config** functions: `SetDataWrap()`, `SetInvalidArgumentCode()`, `SetInternalServerErrorCode()`, `SetJsonDecoderUseNumber()`.
+## Editing Notes
 
-## Language
-
-Commit messages and comments are in Chinese. Follow existing convention.
+- Use `rg` for searches.
+- Use `apply_patch` for source/doc edits.
+- Do not edit generated `*.gen.go` fixtures by hand; edit specs/templates and run `./scripts/test-codegen-e2e.sh`.
+- Keep behavior backward-compatible unless the user explicitly asks for a breaking change.
+- README and README_CODEGEN are user-facing Chinese docs; keep them accurate when API behavior changes.

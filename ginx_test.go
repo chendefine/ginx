@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	validator "github.com/go-playground/validator/v10"
 )
 
 func init() {
@@ -374,6 +375,70 @@ func TestEngineGroupUsesEngineConfiguration(t *testing.T) {
 		t.Fatalf("code=%v", body["code"])
 	}
 }
+
+func TestEngineConfigIsSnapshottedAtRouteRegistration(t *testing.T) {
+	e := New(WithDataWrap(true))
+	r := gin.New()
+	wrapped := e.Wrap(r)
+
+	GET(wrapped, "/before", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: "before"}, nil
+	})
+
+	e.Configure(WithDataWrap(false))
+
+	GET(wrapped, "/after", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: "after"}, nil
+	})
+
+	wBefore := httptest.NewRecorder()
+	r.ServeHTTP(wBefore, httptest.NewRequest(http.MethodGet, "/before", nil))
+	beforeBody := mustDecodeBody(t, wBefore.Body)
+	if _, ok := beforeBody["code"]; !ok {
+		t.Fatalf("route registered before Configure should keep wrapped response: %v", beforeBody)
+	}
+
+	wAfter := httptest.NewRecorder()
+	r.ServeHTTP(wAfter, httptest.NewRequest(http.MethodGet, "/after", nil))
+	afterBody := mustDecodeBody(t, wAfter.Body)
+	if _, ok := afterBody["code"]; ok {
+		t.Fatalf("route registered after Configure should use new no-wrap config: %v", afterBody)
+	}
+	if afterBody["message"] != "after" {
+		t.Fatalf("message=%v", afterBody["message"])
+	}
+}
+
+func TestDefaultEngineConfigIsSnapshottedAtRouteRegistration(t *testing.T) {
+	old := Default().dataWrap
+	defer SetDataWrap(old)
+
+	SetDataWrap(true)
+	r := gin.New()
+	GET(r, "/before", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: "before"}, nil
+	})
+
+	SetDataWrap(false)
+	GET(r, "/after", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: "after"}, nil
+	})
+
+	wBefore := httptest.NewRecorder()
+	r.ServeHTTP(wBefore, httptest.NewRequest(http.MethodGet, "/before", nil))
+	beforeBody := mustDecodeBody(t, wBefore.Body)
+	if _, ok := beforeBody["code"]; !ok {
+		t.Fatalf("route registered before SetDataWrap should keep wrapped response: %v", beforeBody)
+	}
+
+	wAfter := httptest.NewRecorder()
+	r.ServeHTTP(wAfter, httptest.NewRequest(http.MethodGet, "/after", nil))
+	afterBody := mustDecodeBody(t, wAfter.Body)
+	if _, ok := afterBody["code"]; ok {
+		t.Fatalf("route registered after SetDataWrap should use new no-wrap config: %v", afterBody)
+	}
+}
+
 func TestMultiSourceBinding(t *testing.T) {
 	r := gin.New()
 	GET(r, "/users/:id", func(ctx context.Context, req *struct {
@@ -455,6 +520,70 @@ func TestAlwaysOKWithValidationErrorReturnsHTTP200(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d", w.Code)
+	}
+}
+
+func TestStrictJSONBodyAcceptsSingleValue(t *testing.T) {
+	e := New(WithStrictJSONBody(true))
+	r := gin.New()
+	POST(e.Wrap(r), "/users", func(ctx context.Context, req *jsonBodyReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: req.Name}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"alice","age":18}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := mustDecodeBody(t, w.Body)
+	data := body["data"].(map[string]any)
+	if data["message"] != "alice" {
+		t.Fatalf("message=%v", data["message"])
+	}
+}
+
+func TestStrictJSONBodyRejectsTrailingToken(t *testing.T) {
+	e := New(WithStrictJSONBody(true))
+	r := gin.New()
+	POST(e.Wrap(r), "/users", func(ctx context.Context, req *jsonBodyReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: req.Name}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{"name":"alice"} {"name":"bob"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := mustDecodeBody(t, w.Body)
+	if body["msg"] != "ginx: JSON body must contain only one value" {
+		t.Fatalf("msg=%v", body["msg"])
+	}
+}
+
+func TestStrictJSONBodyEmptyBodyStillUsesValidation(t *testing.T) {
+	e := New(WithStrictJSONBody(true))
+	r := gin.New()
+	POST(e.Wrap(r), "/users", func(ctx context.Context, req *jsonBodyReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: req.Name}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := mustDecodeBody(t, w.Body)
+	if body["msg"] != "name is required" {
+		t.Fatalf("msg=%v", body["msg"])
 	}
 }
 
@@ -650,6 +779,57 @@ func TestPlainErrorUsesConfiguredInternalCode(t *testing.T) {
 	}
 }
 
+func TestPlainErrorDefaultsToExposeMessageForCompatibility(t *testing.T) {
+	e := newTestEngine()
+	r := gin.New()
+	GET(e.Wrap(r), "/err", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return nil, errors.New("database password leaked")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/err", nil)
+	r.ServeHTTP(w, req)
+
+	body := mustDecodeBody(t, w.Body)
+	if body["msg"] != "database password leaked" {
+		t.Fatalf("msg=%v", body["msg"])
+	}
+}
+
+func TestPlainErrorCanHideInternalMessage(t *testing.T) {
+	e := newTestEngine(WithExposeInternalError(false))
+	r := gin.New()
+	GET(e.Wrap(r), "/err", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return nil, errors.New("database password leaked")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/err", nil)
+	r.ServeHTTP(w, req)
+
+	body := mustDecodeBody(t, w.Body)
+	if body["msg"] != http.StatusText(http.StatusInternalServerError) {
+		t.Fatalf("msg=%v", body["msg"])
+	}
+}
+
+func TestPlainErrorCanUseConfiguredInternalMessage(t *testing.T) {
+	e := newTestEngine(WithInternalErrorMessage("internal error"))
+	r := gin.New()
+	GET(e.Wrap(r), "/err", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return nil, errors.New("database password leaked")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/err", nil)
+	r.ServeHTTP(w, req)
+
+	body := mustDecodeBody(t, w.Body)
+	if body["msg"] != "internal error" {
+		t.Fatalf("msg=%v", body["msg"])
+	}
+}
+
 func TestRouteAndEngineInterceptorOrder(t *testing.T) {
 	var calls []string
 	e := newTestEngine(WithInterceptor(func(ctx context.Context, req any, next func() (any, error)) (any, error) {
@@ -731,6 +911,33 @@ func TestInterceptorMustReturnMatchingResponseTypePanics(t *testing.T) {
 	w := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodGet, "/users", nil)
 	r.ServeHTTP(w, httpReq)
+}
+
+func TestInterceptorCallingNextTwicePanics(t *testing.T) {
+	r := gin.New()
+	GET(r, "/twice", func(ctx context.Context, req *simpleReq) (*simpleRsp, error) {
+		return &simpleRsp{Message: "ok"}, nil
+	}, RouteInterceptor(func(ctx context.Context, req any, next func() (any, error)) (any, error) {
+		if _, err := next(); err != nil {
+			return nil, err
+		}
+		return next()
+	}))
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic but did not panic")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "next() called more than once") {
+			t.Fatalf("unexpected panic message: %s", msg)
+		}
+	}()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/twice", nil)
+	r.ServeHTTP(w, req)
 }
 
 func TestSetDataWrapAffectsDefaultEngine(t *testing.T) {
@@ -1677,6 +1884,43 @@ func TestSanitizeValidationErrorDefaultTagFallsBackToInvalidMessage(t *testing.T
 	// 应该使用 form tag 名
 	if body["msg"] != "name must start with a" {
 		t.Fatalf("msg=%v", body["msg"])
+	}
+}
+
+func TestFormatValidationErrorUsesCustomFieldNamer(t *testing.T) {
+	err := binding.Validator.ValidateStruct(&struct {
+		UserName string `json:"user_name" binding:"required"`
+	}{})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	got := FormatValidationError(err, func(fe validator.FieldError) string {
+		return "payload." + fe.Field()
+	})
+	if got != "payload.UserName is required" {
+		t.Fatalf("message=%q", got)
+	}
+}
+
+func TestNestedValidationErrorUsesSanitizedFieldName(t *testing.T) {
+	type profile struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	type req struct {
+		Profile profile `json:"profile"`
+	}
+
+	err := binding.Validator.ValidateStruct(&req{})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	got := sanitizeValidationError(err, buildBindingPlan(reflect.TypeOf(req{})).fieldNameMap)
+	if strings.Contains(got, "Key:") || strings.Contains(got, "Error:Field") {
+		t.Fatalf("message leaked validator internals: %q", got)
+	}
+	if !strings.Contains(got, "email is required") {
+		t.Fatalf("message=%q", got)
 	}
 }
 

@@ -2,6 +2,7 @@ package ginx
 
 import (
 	"context"
+	"net/http"
 	"reflect"
 	"sync"
 
@@ -16,6 +17,9 @@ type Engine struct {
 	invalidArgCode       int
 	internalErrorCode    int
 	jsonDecoderUseNumber bool
+	strictJSONBody       bool
+	exposeInternalError  bool
+	internalErrorMessage string
 
 	errorHandler      ErrorHandler
 	validationHandler ValidationErrorHandler
@@ -44,7 +48,7 @@ type JSONRenderer func(c *gin.Context, status int, body any)
 
 // Interceptor 在 handler 真正执行前后插入逻辑. next() 执行下一层.
 // req/rsp 为类型擦除, 需要时可用 reflect 检查.
-// 注意: next 在单次请求中只能调用一次, 重复调用会跳过中间层.
+// 注意: next 在单次请求中只能调用一次, 重复调用会 panic.
 type Interceptor func(ctx context.Context, req any, next func() (any, error)) (any, error)
 
 // RegisterInfo 路由注册时的元信息, 供外部生成 OpenAPI 等.
@@ -64,11 +68,13 @@ type EngineOption func(*Engine)
 // New 创建 Engine 实例, 未指定的配置走内建默认值.
 func New(opts ...EngineOption) *Engine {
 	e := &Engine{
-		dataWrap:          true,
-		invalidArgCode:    1,
-		internalErrorCode: 2,
-		successHandler:    defaultSuccessHandler,
-		jsonRenderer:      defaultJSONRenderer,
+		dataWrap:             true,
+		invalidArgCode:       1,
+		internalErrorCode:    2,
+		exposeInternalError:  true,
+		internalErrorMessage: http.StatusText(http.StatusInternalServerError),
+		successHandler:       defaultSuccessHandler,
+		jsonRenderer:         defaultJSONRenderer,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -126,6 +132,30 @@ func WithJsonDecoderUseNumber(b bool) EngineOption {
 	return func(e *Engine) { e.jsonDecoderUseNumber = b }
 }
 
+// WithStrictJSONBody 开启严格 JSON body 解析. 开启后 Decode 成功后仍会检查是否存在
+// trailing token; 存在额外 JSON 值时按绑定错误返回. 默认 false 以保持兼容.
+func WithStrictJSONBody(b bool) EngineOption {
+	return func(e *Engine) { e.strictJSONBody = b }
+}
+
+// WithExposeInternalError 控制普通 error 是否直接暴露 err.Error().
+// 默认 true 以保持兼容; 公网服务建议设置为 false 并配合 WithInternalErrorMessage.
+func WithExposeInternalError(b bool) EngineOption {
+	return func(e *Engine) { e.exposeInternalError = b }
+}
+
+// WithInternalErrorMessage 设置普通 error 脱敏后的统一文案, 并关闭原始错误暴露.
+// 空字符串会回退为 HTTP 500 的标准文案.
+func WithInternalErrorMessage(msg string) EngineOption {
+	return func(e *Engine) {
+		e.exposeInternalError = false
+		if msg == "" {
+			msg = http.StatusText(http.StatusInternalServerError)
+		}
+		e.internalErrorMessage = msg
+	}
+}
+
 // Router 绑定了 Engine 的路由组, 传给 GET/POST 等函数时会自动使用对应 Engine.
 type Router struct {
 	gin.IRoutes
@@ -149,13 +179,19 @@ var defaultEngine = New()
 // Default 返回 defaultEngine, 便于上层在需要时直接拿到.
 func Default() *Engine { return defaultEngine }
 
+// Configure 在当前 Engine 上应用若干 Option. 已注册路由持有注册时的配置快照,
+// 因此本方法只影响后续注册的路由.
+func (e *Engine) Configure(opts ...EngineOption) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, opt := range opts {
+		opt(e)
+	}
+}
+
 // Configure 便捷地在 defaultEngine 上应用若干 Option.
 func Configure(opts ...EngineOption) {
-	defaultEngine.mu.Lock()
-	defer defaultEngine.mu.Unlock()
-	for _, opt := range opts {
-		opt(defaultEngine)
-	}
+	defaultEngine.Configure(opts...)
 }
 
 // SetDataWrap 便捷调用 Configure(WithDataWrap(b)).
@@ -169,6 +205,15 @@ func SetInternalServerErrorCode(c int) { Configure(WithInternalErrorCode(c)) }
 
 // SetJsonDecoderUseNumber 便捷调用 Configure(WithJsonDecoderUseNumber(b)).
 func SetJsonDecoderUseNumber(b bool) { Configure(WithJsonDecoderUseNumber(b)) }
+
+// SetStrictJSONBody 便捷调用 Configure(WithStrictJSONBody(b)).
+func SetStrictJSONBody(b bool) { Configure(WithStrictJSONBody(b)) }
+
+// SetExposeInternalError 便捷调用 Configure(WithExposeInternalError(b)).
+func SetExposeInternalError(b bool) { Configure(WithExposeInternalError(b)) }
+
+// SetInternalErrorMessage 便捷调用 Configure(WithInternalErrorMessage(msg)).
+func SetInternalErrorMessage(msg string) { Configure(WithInternalErrorMessage(msg)) }
 
 // --- Route level options ---
 
@@ -214,6 +259,9 @@ func (e *Engine) resolveRoute(opts []RouteOption) resolved {
 		invalidArgCode:       e.invalidArgCode,
 		internalErrorCode:    e.internalErrorCode,
 		jsonDecoderUseNumber: e.jsonDecoderUseNumber,
+		strictJSONBody:       e.strictJSONBody,
+		exposeInternalError:  e.exposeInternalError,
+		internalErrorMessage: e.internalErrorMessage,
 		errorHandler:         e.errorHandler,
 		validationHandler:    e.validationHandler,
 		successHandler:       e.successHandler,
@@ -237,6 +285,9 @@ type resolved struct {
 	invalidArgCode       int
 	internalErrorCode    int
 	jsonDecoderUseNumber bool
+	strictJSONBody       bool
+	exposeInternalError  bool
+	internalErrorMessage string
 	errorHandler         ErrorHandler
 	validationHandler    ValidationErrorHandler
 	successHandler       SuccessHandler

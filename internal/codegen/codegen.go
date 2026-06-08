@@ -93,6 +93,11 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 	if err := validateOperationNames(ops); err != nil {
 		return nil, err
 	}
+	if generateClient {
+		if err := validateClientOperations(ops); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateTypeDefs(allTypes); err != nil {
 		return nil, err
 	}
@@ -128,7 +133,7 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 				"github.com/gin-gonic/gin":   true,
 			}
 			for _, op := range ops {
-				if op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.StringRsp" || op.RspTypeName == "ginx.RedirectRsp" {
+				if op.RspTypeName == "ginx.FileRsp" || op.RspTypeName == "ginx.StringRsp" || op.RspTypeName == "ginx.DataRsp" || op.RspTypeName == "ginx.RedirectRsp" {
 					serverImports["github.com/chendefine/ginx"] = true
 				}
 			}
@@ -391,9 +396,6 @@ func hasSSEOperations(ops []OperationDef) bool {
 
 func hasClientCookieParameters(ops []OperationDef) bool {
 	for _, op := range ops {
-		if !op.IsSSE && skipForClient(op) {
-			continue
-		}
 		if len(filterCookieParams(op.Request)) > 0 {
 			return true
 		}
@@ -403,9 +405,6 @@ func hasClientCookieParameters(ops []OperationDef) bool {
 
 func hasClientTimeParameters(ops []OperationDef) bool {
 	for _, op := range ops {
-		if !op.IsSSE && skipForClient(op) {
-			continue
-		}
 		if op.Request == nil {
 			continue
 		}

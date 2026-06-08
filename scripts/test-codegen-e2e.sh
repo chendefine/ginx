@@ -14,10 +14,10 @@ for dir in internal/codegen/e2etest/code/*; do
     echo "generating $dir"
     (
       cd "$dir"
+      rm -f -- *.gen.go
       "$BIN" -c oapi-ginx.yaml
     )
   fi
 done
 
 go test ./internal/codegen/... -count=1 "$@"
-

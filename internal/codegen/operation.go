@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -42,6 +43,9 @@ func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, s
 			}
 
 			opName := OperationName(mo.method, path, mo.op.OperationID)
+			if err := validateOperationResponses(opName, mo.method, path, mo.op); err != nil {
+				return nil, nil, err
+			}
 			reqStruct, reqExtra := buildRequestStruct(opName, pathItem, mo.op, imports, seen)
 			extraTypes = append(extraTypes, reqExtra...)
 
@@ -417,6 +421,9 @@ func buildResponseType(opName string, op *openapi3.Operation, imports map[string
 	if responseRef == nil || responseRef.Value == nil {
 		return nil, nil
 	}
+	if kind := selectedResponseOverride(op, responseRef); kind != "" {
+		return nil, nil
+	}
 	if statusCode == http.StatusNoContent {
 		return nil, nil
 	}
@@ -454,6 +461,9 @@ func resolveResponseTypeName(opName string, op *openapi3.Operation) string {
 	if responseRef == nil || responseRef.Value == nil {
 		return "struct{}"
 	}
+	if kind := selectedResponseOverride(op, responseRef); kind != "" {
+		return responseKindType(kind)
+	}
 	if statusCode == http.StatusNoContent {
 		return "struct{}"
 	}
@@ -487,12 +497,160 @@ func selectSuccessResponse(responses *openapi3.Responses) (int, *openapi3.Respon
 	if responses == nil {
 		return 0, nil
 	}
+	for _, code := range successStatusCodes(responses) {
+		r := responses.Status(code)
+		if isPrimarySuccessResponse(r) {
+			return code, r
+		}
+	}
 	for code := http.StatusOK; code < http.StatusMultipleChoices; code++ {
 		if r := responses.Status(code); r != nil {
 			return code, r
 		}
 	}
 	return 0, nil
+}
+
+func validateOperationResponses(opName, method, path string, op *openapi3.Operation) error {
+	if op == nil {
+		return nil
+	}
+	if _, _, err := responseOverrideFromExtensions(op.Extensions); err != nil {
+		return fmt.Errorf("%s %s (%s): %w", method, path, opName, err)
+	}
+	if op.Responses == nil {
+		return nil
+	}
+
+	hasPrimary := false
+	primaryCount := 0
+	for _, code := range successStatusCodes(op.Responses) {
+		responseRef := op.Responses.Status(code)
+		if isPrimarySuccessResponse(responseRef) {
+			primaryCount++
+			hasPrimary = true
+		}
+	}
+	if primaryCount > 1 {
+		return fmt.Errorf("%s %s (%s): multiple 2xx responses set x-ginx-primary-response: true; keep only one primary success response", method, path, opName)
+	}
+
+	var firstJSONStatus int
+	var firstJSONFingerprint string
+	for _, code := range successStatusCodes(op.Responses) {
+		responseRef := op.Responses.Status(code)
+		if responseRef == nil || responseRef.Value == nil {
+			continue
+		}
+		if _, _, err := responseOverrideFromExtensions(responseRef.Value.Extensions); err != nil {
+			return fmt.Errorf("%s %s (%s) response %d: %w", method, path, opName, code, err)
+		}
+		mt := responseRef.Value.Content.Get("application/json")
+		if mt == nil || mt.Schema == nil {
+			continue
+		}
+		fp := responseSchemaFingerprint(mt.Schema)
+		if firstJSONFingerprint == "" {
+			firstJSONStatus = code
+			firstJSONFingerprint = fp
+			continue
+		}
+		if !hasPrimary && fp != firstJSONFingerprint {
+			return fmt.Errorf("%s %s (%s): multiple 2xx JSON responses have different schemas (%d and %d); keep one JSON success schema or set x-ginx-primary-response: true on the intended primary response", method, path, opName, firstJSONStatus, code)
+		}
+	}
+	return nil
+}
+
+func successStatusCodes(responses *openapi3.Responses) []int {
+	if responses == nil {
+		return nil
+	}
+	var codes []int
+	for name := range responses.Map() {
+		code, err := strconv.Atoi(name)
+		if err != nil {
+			continue
+		}
+		if code >= http.StatusOK && code < http.StatusMultipleChoices {
+			codes = append(codes, code)
+		}
+	}
+	sort.Ints(codes)
+	return codes
+}
+
+func isPrimarySuccessResponse(responseRef *openapi3.ResponseRef) bool {
+	if responseRef == nil || responseRef.Value == nil {
+		return false
+	}
+	v, ok := responseRef.Value.Extensions["x-ginx-primary-response"]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+func selectedResponseOverride(op *openapi3.Operation, responseRef *openapi3.ResponseRef) string {
+	if responseRef != nil && responseRef.Value != nil {
+		if kind, ok, _ := responseOverrideFromExtensions(responseRef.Value.Extensions); ok {
+			return kind
+		}
+	}
+	if op != nil {
+		if kind, ok, _ := responseOverrideFromExtensions(op.Extensions); ok {
+			return kind
+		}
+	}
+	return ""
+}
+
+func responseOverrideFromExtensions(extensions map[string]any) (string, bool, error) {
+	v, ok := extensions["x-ginx-response"]
+	if !ok {
+		return "", false, nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", true, fmt.Errorf("x-ginx-response must be one of file, string, data, redirect")
+	}
+	kind := strings.ToLower(strings.TrimSpace(s))
+	switch kind {
+	case "file", "string", "data", "redirect":
+		return kind, true, nil
+	default:
+		return "", true, fmt.Errorf("x-ginx-response=%q is unsupported; use file, string, data, or redirect", s)
+	}
+}
+
+func responseKindType(kind string) string {
+	switch kind {
+	case "file":
+		return "ginx.FileRsp"
+	case "string":
+		return "ginx.StringRsp"
+	case "data":
+		return "ginx.DataRsp"
+	case "redirect":
+		return "ginx.RedirectRsp"
+	default:
+		return "struct{}"
+	}
+}
+
+func responseSchemaFingerprint(schemaRef *openapi3.SchemaRef) string {
+	if schemaRef == nil {
+		return "<nil>"
+	}
+	if schemaRef.Ref != "" {
+		return "ref:" + schemaRef.Ref
+	}
+	b, err := json.Marshal(schemaRef.Value)
+	if err != nil {
+		return fmt.Sprintf("%#v", schemaRef.Value)
+	}
+	return string(b)
 }
 
 func has2xxResponse(responses *openapi3.Responses) bool {
