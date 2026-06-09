@@ -26,6 +26,13 @@ go run ./cmd/oapi-ginx -c path/to/oapi-ginx.yaml
 
 Run `./scripts/test-codegen-e2e.sh` after changing codegen templates or generated fixture specs. The script deletes stale `*.gen.go` files before regenerating.
 
+## AI Usage Entry Points
+
+- `AGENTS.md` is the generic repository entry point for AI coding agents.
+- `skills/ginx-http-backend/SKILL.md` is a portable Codex-style skill for building Go HTTP services with ginx. Read it before implementing service code or OpenAPI/codegen workflows.
+- `README.md` and `README_CODEGEN.md` are concise main-path docs for humans and agents.
+- `docs/RUNTIME_REFERENCE.md` and `docs/CODEGEN_REFERENCE.md` keep the long-form runtime/codegen reference details.
+
 ## Runtime Architecture
 
 - `ginx.go`: public registration functions (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `Any`, `Handle`, `SSE`) and core handler/SSE types.
@@ -72,4 +79,4 @@ Current codegen behavior:
 - Use `apply_patch` for source/doc edits.
 - Do not edit generated `*.gen.go` fixtures by hand; edit specs/templates and run `./scripts/test-codegen-e2e.sh`.
 - Keep behavior backward-compatible unless the user explicitly asks for a breaking change.
-- README and README_CODEGEN are user-facing Chinese docs; keep them accurate when API behavior changes.
+- README and README_CODEGEN are user-facing Chinese quick-entry docs; keep them concise and accurate when API behavior changes. Put long reference material in `docs/RUNTIME_REFERENCE.md` or `docs/CODEGEN_REFERENCE.md`.

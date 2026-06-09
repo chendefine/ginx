@@ -1,0 +1,5 @@
+interface:
+  display_name: "ginx HTTP Backend"
+  short_description: "Build typed Go HTTP services with ginx"
+  default_prompt: "Use $ginx-http-backend to build or modify a typed Go HTTP backend service with github.com/chendefine/ginx."
+
