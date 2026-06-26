@@ -54,7 +54,7 @@ func (c *{{ $.ServerName }}Client) {{ .Name }}(ctx context.Context, req *{{ .Nam
 		sseURL += "?" + encoded
 	}
 {{ end }}
-	es := resty.NewEventSource()
+	es := resty.NewSSESource()
 	es.SetURL(sseURL)
 {{ range headerParams .Request }}
 {{- if isPointerType . }}

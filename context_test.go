@@ -291,7 +291,7 @@ func containsAll(s string, parts []string) bool {
 
 func TestSSEStream_Close_Idempotent(t *testing.T) {
 	ctx := context.Background()
-	es := resty.NewEventSource().SetURL("http://127.0.0.1:1/nonexistent")
+	es := resty.NewSSESource().SetURL("http://127.0.0.1:1/nonexistent")
 
 	stream := NewSSEStream(ctx, es)
 
@@ -322,7 +322,7 @@ func TestSSEStream_Close_DoesNotBlockWhileConnecting(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	ctx := context.Background()
-	es := resty.NewEventSource().SetURL(srv.URL).SetRetryCount(0)
+	es := resty.NewSSESource().SetURL(srv.URL).SetRetryCount(0)
 	stream := NewSSEStream(ctx, es)
 
 	select {
@@ -340,7 +340,7 @@ func TestSSEStream_Close_DoesNotBlockWhileConnecting(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Close blocked while EventSource was connecting")
+		t.Fatal("Close blocked while SSESource was connecting")
 	}
 
 	releaseOnce.Do(func() { close(release) })
@@ -348,7 +348,7 @@ func TestSSEStream_Close_DoesNotBlockWhileConnecting(t *testing.T) {
 
 func TestSSEStream_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	es := resty.NewEventSource().SetURL("http://127.0.0.1:1/nonexistent")
+	es := resty.NewSSESource().SetURL("http://127.0.0.1:1/nonexistent")
 
 	stream := NewSSEStream(ctx, es)
 
@@ -363,7 +363,7 @@ func TestSSEStream_ContextCancel(t *testing.T) {
 
 func TestSSEStream_RecvAfterClose(t *testing.T) {
 	ctx := context.Background()
-	es := resty.NewEventSource().SetURL("http://127.0.0.1:1/nonexistent")
+	es := resty.NewSSESource().SetURL("http://127.0.0.1:1/nonexistent")
 
 	stream := NewSSEStream(ctx, es)
 	stream.Close()
@@ -399,7 +399,7 @@ func TestSSEStream_Integration(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	es := resty.NewEventSource().SetURL(srv.URL).SetRetryCount(0)
+	es := resty.NewSSESource().SetURL(srv.URL).SetRetryCount(0)
 	stream := NewSSEStream(ctx, es)
 	defer stream.Close()
 
@@ -450,7 +450,7 @@ func TestSSEStream_Integration_CloseEarly(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	es := resty.NewEventSource().SetURL(srv.URL).SetRetryCount(0)
+	es := resty.NewSSESource().SetURL(srv.URL).SetRetryCount(0)
 	stream := NewSSEStream(ctx, es)
 
 	// Read one event

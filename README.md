@@ -262,17 +262,32 @@ ginx.SSE(r, "/events", func(ctx context.Context, req *struct{}, send ginx.Sender
 
 ## OpenAPI Codegen
 
-如果项目以 OpenAPI 为契约，优先使用 `oapi-ginx` 生成类型、服务接口、路由注册和可选客户端 SDK：
+如果项目以 OpenAPI 为契约，优先使用 `oapi-ginx` 生成类型、服务接口、路由注册和可选客户端 SDK。
+
+安装 CLI（需要 Go 1.25+）。`go install` 会把二进制装到 `$GOPATH/bin`（未设置 `GOBIN` 时默认为 `~/go/bin`），确认该目录已加入 `PATH` 后即可全局调用：
 
 ```bash
 go install github.com/chendefine/ginx/cmd/oapi-ginx@latest
+```
+
+也可以不安装、直接在项目内用 `go run` 运行，版本随当前模块依赖走，适合 CI 或锁定版本：
+
+```bash
+go run github.com/chendefine/ginx/cmd/oapi-ginx -c oapi-ginx.yaml
+```
+
+需要从源码构建时，clone 本仓库后执行 `go build -o oapi-ginx ./cmd/oapi-ginx`。
+
+安装后生成示例配置，再生成代码：
+
+```bash
 oapi-ginx -init > oapi-ginx.yaml
 oapi-ginx -c oapi-ginx.yaml
 ```
 
 生成后实现 `ServerInterface`，并在启动代码中调用 `RegisterRoutes(r, svc, opts...)`。
 
-更多内容见 [README_CODEGEN.md](README_CODEGEN.md) 和 [docs/CODEGEN_REFERENCE.md](docs/CODEGEN_REFERENCE.md)。
+完整配置、命令行参数和生成规则见 [README_CODEGEN.md](README_CODEGEN.md) 和 [docs/CODEGEN_REFERENCE.md](docs/CODEGEN_REFERENCE.md)。
 
 ## AI Agent 接入
 

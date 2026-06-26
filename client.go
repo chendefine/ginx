@@ -71,7 +71,7 @@ func ParseResponse(statusCode int, body []byte, result any) error {
 }
 
 // SSEStream provides a pull-based interface for consuming Server-Sent Events.
-// It bridges resty's callback-based EventSource into a gRPC-style Recv() pattern.
+// It bridges resty's callback-based SSESource into a gRPC-style Recv() pattern.
 //
 // Internally uses 2 goroutines: one for the blocking es.Get() call, one for
 // context-cancellation cleanup. Both are guaranteed to exit when the stream
@@ -80,7 +80,7 @@ func ParseResponse(statusCode int, body []byte, result any) error {
 // Callers should call Close() when done, or rely on context cancellation to
 // release resources.
 type SSEStream struct {
-	es     *resty.EventSource
+	es     *resty.SSESource
 	ch     chan Event
 	errCh  chan error
 	ctx    context.Context
@@ -88,13 +88,13 @@ type SSEStream struct {
 	once   sync.Once
 }
 
-// NewSSEStream creates an SSEStream from a configured resty EventSource.
-// The caller should have already set URL, headers, etc. on the EventSource.
+// NewSSEStream creates an SSEStream from a configured resty SSESource.
+// The caller should have already set URL, headers, etc. on the SSESource.
 //
 // The stream is safe against leaks: if the parent context is cancelled,
 // the underlying connection is closed automatically even without an
 // explicit Close() call.
-func NewSSEStream(ctx context.Context, es *resty.EventSource) *SSEStream {
+func NewSSEStream(ctx context.Context, es *resty.SSESource) *SSEStream {
 	ctx, cancel := context.WithCancel(ctx)
 	s := &SSEStream{
 		es:     es,
@@ -105,7 +105,7 @@ func NewSSEStream(ctx context.Context, es *resty.EventSource) *SSEStream {
 	}
 
 	es.OnMessage(func(e any) {
-		event, ok := e.(*resty.Event)
+		event, ok := e.(*resty.SSE)
 		if !ok {
 			return
 		}

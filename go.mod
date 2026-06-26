@@ -1,6 +1,6 @@
 module github.com/chendefine/ginx
 
-go 1.25
+go 1.23.0
 
 require (
 	github.com/creasty/defaults v1.8.0
@@ -10,7 +10,7 @@ require (
 	github.com/go-playground/validator/v10 v10.14.0
 	golang.org/x/tools v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
-	resty.dev/v3 v3.0.0-beta.6
+	resty.dev/v3 v3.0.0-rc.2
 )
 
 require (
