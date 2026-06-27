@@ -84,6 +84,7 @@ output_options:
   skip_fmt: false           # 跳过 goimports 格式化
   generate_server: true     # 是否生成 ServerInterface 和 RegisterRoutes
   generate_client: true     # 是否生成 HTTP 客户端 SDK
+  unwrap_envelope: true     # 自动探测并解包 ginx {code,msg,data} 响应封装（默认 true）
 ```
 
 兼容说明：顶层 `generate_server` 仍可读取，但已废弃；新配置请使用 `output_options.generate_server`。如果两者同时出现，`output_options.generate_server` 优先。
@@ -257,6 +258,40 @@ type UpdatePetReq struct {
 ```go
 type GetPetRsp = Pet
 ```
+
+### 响应封装自动解包（unwrap_envelope）
+
+ginx 运行时默认把成功响应包装成 `{"code":0,"msg":"","data":{...}}`，因此规范的 response schema 只需描述 `data` 里的业务数据。但若 spec 把 response 直接写成了整层封装 `{code,msg,data}`，codegen 会原样生成三字段 `Rsp`，运行时再包一层，导致 wire 上出现双壳。为避免这种情况，codegen 默认开启封装自动解包（`output_options.unwrap_envelope: true`）。
+
+判定规则（严格匹配，命中才解包）：
+
+- response 的 `application/json` schema 是一个对象；
+- **恰好**三个属性 `code`、`msg`、`data`（不多不少）；
+- `code` 类型为 `integer`，`msg` 类型为 `string`；
+- 存在 `data` 子 schema（`required` 是否声明不影响判定）。
+
+命中后，`{OperationName}Rsp` 只依据 `data` 子 schema 生成（`data` 是 `$ref` 则生成别名、是 inline object 则生成结构体、是 array/primitive 则生成对应类型），ginx 运行时再补上单层封装。`code` 必须是 `integer` 是关键防误判项——业务里名为 `code` 的字段多为字符串（错误码/状态码），不会被误判为封装。
+
+```yaml
+# spec 中误写了整层封装 —— 会被自动解包
+responses:
+  "200":
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            code: { type: integer }
+            msg:  { type: string }
+            data: { $ref: "#/components/schemas/User" }
+# 生成: type GetUserRsp = User
+```
+
+注意：
+
+- 这只影响生成的 Go 类型；内嵌 spec（供 Swagger UI / 非本工具生成的客户端使用）仍保留原始 `{code,msg,data}` 契约。
+- 客户端 SDK 无需改动：`ParseResponse` 已通用识别封装并提取 `data`，解包后的类型对客户端同样生效。
+- 若某个业务响应**确实**就是 `{code:int, msg:string, data:T}` 三字段结构（非传输封装），会被静默解包为 `type XxxRsp = T`；运行时仍由 ginx 包装 `T`，round-trip 不受影响，但若需保留三字段结构，可设 `output_options: { unwrap_envelope: false }` 关闭。
 
 支持的 HTTP 方法包括 `GET`、`HEAD`、`POST`、`PUT`、`PATCH`、`DELETE`、`OPTIONS`。`TRACE` 暂不生成，遇到时会返回明确错误，避免静默丢失 operation。
 

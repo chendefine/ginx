@@ -88,6 +88,7 @@ output_options:
   generate_server: true
   generate_client: true
   skip_fmt: false
+  unwrap_envelope: true  # 自动解包 spec 中误写的 {code,msg,data} 响应封装（默认 true）
 ```
 
 输出字段：
@@ -193,6 +194,8 @@ r.Run(":8080")
 | `text/plain` | `ginx.StringRsp` |
 | `text/event-stream` | SSE handler |
 | 仅重定向响应 | `ginx.RedirectRsp` |
+
+**响应封装自动解包**：ginx 运行时会自动把成功响应包装成 `{"code":0,"msg":"","data":{...}}`，所以 spec 的 response 只需描述 `data` 里的业务数据。若 spec 误把 response 写成整层 `{code,msg,data}`，codegen 默认（`output_options.unwrap_envelope: true`）会识别并只取 `data` 子 schema 生成 `Rsp`，避免运行时双壳封装。判定为严格匹配：对象且**恰好**三字段 `code`(integer)/`msg`(string)/`data`。若业务响应本身就是这三字段结构，设 `unwrap_envelope: false` 关闭。详见 [docs/CODEGEN_REFERENCE.md](docs/CODEGEN_REFERENCE.md#响应封装自动解包unwrap_envelope)。
 
 当 content type 无法表达意图时，使用 `x-ginx-response`：
 

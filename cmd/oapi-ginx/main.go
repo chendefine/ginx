@@ -43,6 +43,7 @@ output:
 #   skip_fmt: false
 #   generate_server: true
 #   generate_client: false
+#   unwrap_envelope: true  # auto-detect & unwrap ginx {code,msg,data} response envelope (default: true)
 `
 
 func main() {

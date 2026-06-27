@@ -38,6 +38,14 @@ type OutputOptions struct {
 	SkipFmt        bool  `yaml:"skip_fmt"`
 	GenerateServer *bool `yaml:"generate_server"`
 	GenerateClient *bool `yaml:"generate_client"`
+
+	// UnwrapEnvelope controls auto-detection and unwrapping of the ginx success
+	// envelope {code,msg,data} in response schemas. nil (the default) means ON:
+	// when a JSON success response schema is exactly {code:integer,msg:string,
+	// data:any}, only the data sub-schema is used to generate the XxxRsp type,
+	// preventing a double-wrapped wire body. Set false to keep response schemas
+	// verbatim.
+	UnwrapEnvelope *bool `yaml:"unwrap_envelope"`
 }
 
 type TypeMappingExt struct {
@@ -108,6 +116,16 @@ func (c *Config) ShouldGenerateClient() bool {
 		return *c.OutputOptions.GenerateClient
 	}
 	return c.Output.Client != ""
+}
+
+// ShouldUnwrapEnvelope reports whether response schemas shaped exactly like the
+// ginx success envelope {code,msg,data} should be unwrapped to their data
+// sub-schema during code generation. Defaults to true (auto-detect ON).
+func (c *Config) ShouldUnwrapEnvelope() bool {
+	if c.OutputOptions.UnwrapEnvelope != nil {
+		return *c.OutputOptions.UnwrapEnvelope
+	}
+	return true
 }
 
 func (c *Config) GetServerName() string {

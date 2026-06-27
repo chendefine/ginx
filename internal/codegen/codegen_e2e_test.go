@@ -653,6 +653,204 @@ paths:
 }
 
 // ============================================================
+// Module 4b: Envelope Unwrap
+// ============================================================
+
+// When unwrap_envelope is enabled (the default), a JSON success response shaped
+// exactly like the ginx envelope {code:integer, msg:string, data:any} is
+// unwrapped: only the data sub-schema becomes the XxxRsp type, so ginx's
+// runtime wrapper produces a single envelope on the wire instead of a double
+// wrap. See internal/codegen/e2etest/openapi-3.0/spec/envelope_unwrap.yaml.
+
+func TestE2E_Envelope_InlineEnvelopeWithRefData(t *testing.T) {
+	code := generateSingleFile(t, "envelope_unwrap.yaml")
+	// data is $ref: User -> XxxRsp is an alias, NOT a three-field struct.
+	assertContains(t, code, "type GetUserRsp = User")
+	assertNotContains(t, code, "type GetUserRsp struct")
+}
+
+func TestE2E_Envelope_InlineEnvelopeWithInlineData(t *testing.T) {
+	code := generateSingleFile(t, "envelope_unwrap.yaml")
+	// data is an inline object -> XxxRsp is the business struct.
+	assertContains(t, code, "type GetProductRsp struct")
+	assertContains(t, code, "Price float64")
+}
+
+func TestE2E_Envelope_RefEnvelope(t *testing.T) {
+	code := generateSingleFile(t, "envelope_unwrap.yaml")
+	// response is $ref: ApiResponse (the envelope); data is $ref: User -> alias.
+	assertContains(t, code, "type GetWrappedRsp = User")
+}
+
+func TestE2E_Envelope_ComponentPreservedVerbatim(t *testing.T) {
+	code := generateSingleFile(t, "envelope_unwrap.yaml")
+	// The envelope component schema itself is still emitted verbatim (it is the
+	// real wire contract for non-ginx clients / embedded spec).
+	assertContains(t, code, "type APIResponse struct")
+	assertContains(t, code, "Code *int")
+	assertContains(t, code, "Data *User")
+}
+
+func TestE2E_Envelope_PrimitiveData(t *testing.T) {
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /token:
+    get:
+      operationId: getToken
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: {type: integer}
+                  msg: {type: string}
+                  data: {type: string}
+`)
+	// data is a primitive string -> XxxRsp is an alias to string.
+	assertContains(t, code, "type GetTokenRsp = string")
+}
+
+func TestE2E_Envelope_NegativeStringCode(t *testing.T) {
+	// code as string is NOT the ginx envelope (code must be integer).
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /sc:
+    get:
+      operationId: getStrCode
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: {type: string}
+                  msg: {type: string}
+                  data:
+                    type: object
+                    properties:
+                      id: {type: integer}
+`)
+	assertContains(t, code, "type GetStrCodeRsp struct")
+	assertContains(t, code, "Code *string")
+}
+
+func TestE2E_Envelope_NegativeFourFields(t *testing.T) {
+	// Four properties is NOT exactly the three-field envelope.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /four:
+    get:
+      operationId: getFour
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: {type: integer}
+                  msg: {type: string}
+                  data: {type: string}
+                  extra: {type: string}
+`)
+	assertContains(t, code, "type GetFourRsp struct")
+	assertContains(t, code, "Extra *string")
+}
+
+func TestE2E_Envelope_NegativeMissingData(t *testing.T) {
+	// Two properties (no data) is NOT the envelope.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /cm:
+    get:
+      operationId: getCodeMsg
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: {type: integer}
+                  msg: {type: string}
+`)
+	assertContains(t, code, "type GetCodeMsgRsp struct")
+	assertContains(t, code, "Code *int")
+	assertContains(t, code, "Msg *string")
+}
+
+func TestE2E_Envelope_OptOutKeepsEnvelope(t *testing.T) {
+	// Same shape as the positive case, but unwrap_envelope: false must keep the
+	// response schema verbatim (three-field struct, not unwrapped).
+	disable := func(c *Config) { v := false; c.OutputOptions.UnwrapEnvelope = &v }
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /optout:
+    get:
+      operationId: getOptOut
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: {type: integer}
+                  msg: {type: string}
+                  data:
+                    $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+`, disable)
+	assertContains(t, code, "type GetOptOutRsp struct")
+	assertContains(t, code, "Code *int")
+	assertContains(t, code, "Data *User")
+	assertNotContains(t, code, "type GetOptOutRsp = User")
+}
+
+// generateFromInlineSpec writes spec to a temp dir and returns the generated
+// types source. Used for envelope edge cases that don't warrant a fixture.
+func generateFromInlineSpec(t *testing.T, spec string, opts ...func(*Config)) string {
+	t.Helper()
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "spec.yaml")
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	cfg := Config{
+		PackageName:   "api",
+		SpecPath:      specPath,
+		OutputOptions: OutputOptions{SkipFmt: true},
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	result, err := GenerateMulti(cfg)
+	if err != nil {
+		t.Fatalf("GenerateMulti: %v", err)
+	}
+	return string(result.Types)
+}
+
+// ============================================================
 // Module 5: Validation Rules
 // ============================================================
 

@@ -101,7 +101,7 @@ func buildOperationDef(method, path string, pathItem *openapi3.PathItem, op *ope
 	var rspExtra []TypeDef
 	if !sse && !jl {
 		rspTypeName = resolveResponseTypeName(opName, op)
-		rspDef, rspExtra = buildResponseType(opName, op, imports, seen)
+		rspDef, rspExtra = buildResponseType(opName, op, cfg.ShouldUnwrapEnvelope(), imports, seen)
 	}
 
 	return OperationDef{
@@ -522,7 +522,7 @@ func isJSONLinesContentType(ct string) bool {
 	return ct == "application/jsonl" || ct == "application/x-ndjson"
 }
 
-func buildResponseType(opName string, op *openapi3.Operation, imports map[string]bool, seen map[string]bool) (*TypeDef, []TypeDef) {
+func buildResponseType(opName string, op *openapi3.Operation, unwrap bool, imports map[string]bool, seen map[string]bool) (*TypeDef, []TypeDef) {
 	if op.Responses == nil {
 		return nil, nil
 	}
@@ -543,19 +543,60 @@ func buildResponseType(opName string, op *openapi3.Operation, imports map[string
 		return nil, nil
 	}
 
+	// When unwrap is enabled and the response schema is exactly the ginx success
+	// envelope {code,msg,data}, derive XxxRsp from the data sub-schema only.
+	// This keeps the generated type as the business payload and lets ginx's
+	// runtime success wrapper add the single envelope, avoiding a double-wrapped
+	// wire body. effective keeps its own .Ref/.Value so the alias/ResolveSchema
+	// branches below work unchanged.
+	effective := effectiveResponseSchema(mt.Schema, unwrap)
+
 	rspName := opName + "Rsp"
 
-	if mt.Schema.Ref != "" {
-		typeName := refToTypeName(mt.Schema.Ref)
+	if effective.Ref != "" {
+		typeName := refToTypeName(effective.Ref)
 		return &TypeDef{Alias: &AliasDef{Name: rspName, TargetType: typeName}}, nil
 	}
 
-	types := ResolveSchema(rspName, mt.Schema, imports, seen)
+	types := ResolveSchema(rspName, effective, imports, seen)
 	if len(types) == 0 {
 		return nil, nil
 	}
 	first := types[0]
 	return &first, types[1:]
+}
+
+// effectiveResponseSchema returns the schema to generate the XxxRsp type from.
+// When unwrap is enabled and schema (inline or $ref-resolved) is exactly the
+// ginx success envelope {code:integer, msg:string, data:any}, it returns the
+// data sub-schema; otherwise it returns schema unchanged. The returned ref
+// retains its own .Ref/.Value so callers' alias-vs-ResolveSchema logic works
+// without further changes.
+func effectiveResponseSchema(ref *openapi3.SchemaRef, unwrap bool) *openapi3.SchemaRef {
+	if !unwrap || ref == nil || ref.Value == nil {
+		return ref
+	}
+	if !isGinxEnvelope(ref.Value) {
+		return ref
+	}
+	if data := ref.Value.Properties["data"]; data != nil {
+		return data
+	}
+	return ref
+}
+
+// isGinxEnvelope reports whether s is exactly ginx's default success envelope:
+// precisely three properties code/msg/data, with integer code and string msg.
+// The required array is ignored (ginx always emits all three fields).
+func isGinxEnvelope(s *openapi3.Schema) bool {
+	if s == nil || len(s.Properties) != 3 {
+		return false
+	}
+	code, msg, data := s.Properties["code"], s.Properties["msg"], s.Properties["data"]
+	if code == nil || code.Value == nil || msg == nil || msg.Value == nil || data == nil {
+		return false
+	}
+	return typeIs(code.Value, "integer") && typeIs(msg.Value, "string")
 }
 
 func resolveResponseTypeName(opName string, op *openapi3.Operation) string {

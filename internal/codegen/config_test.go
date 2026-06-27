@@ -151,3 +151,28 @@ func TestDeprecatedGenerateServerFallback(t *testing.T) {
 		t.Fatal("output_options.generate_server should take precedence")
 	}
 }
+
+func TestShouldUnwrapEnvelopeDefaultTrue(t *testing.T) {
+	t.Parallel()
+
+	var cfg Config
+	if !cfg.ShouldUnwrapEnvelope() {
+		t.Fatal("ShouldUnwrapEnvelope() = false, want default true")
+	}
+}
+
+func TestShouldUnwrapEnvelopeExplicitFalse(t *testing.T) {
+	t.Parallel()
+
+	falseVal := false
+	cfg := Config{OutputOptions: OutputOptions{UnwrapEnvelope: &falseVal}}
+	if cfg.ShouldUnwrapEnvelope() {
+		t.Fatal("ShouldUnwrapEnvelope() = true, want false when explicitly disabled")
+	}
+
+	trueVal := true
+	cfg.OutputOptions.UnwrapEnvelope = &trueVal
+	if !cfg.ShouldUnwrapEnvelope() {
+		t.Fatal("ShouldUnwrapEnvelope() = false, want true when explicitly enabled")
+	}
+}
