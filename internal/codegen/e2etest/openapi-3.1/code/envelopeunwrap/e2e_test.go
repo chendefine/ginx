@@ -22,7 +22,7 @@ func setupServer() (*httptest.Server, *Client, *TestService) {
 }
 
 // TestEnvelopeUnwrap_RoundTrip proves the generated client recovers the inner
-// business payload for each unwrap variant.
+// business payload for each 3.1 envelope variant (nullable inline + allOf).
 func TestEnvelopeUnwrap_RoundTrip(t *testing.T) {
 	srv, client, _ := setupServer()
 	defer srv.Close()
@@ -35,36 +35,19 @@ func TestEnvelopeUnwrap_RoundTrip(t *testing.T) {
 		t.Errorf("GetUser = %+v, want {ID:1 Name:Alice}", usr)
 	}
 
-	prod, err := client.GetProduct(context.Background(), &GetProductReq{})
-	if err != nil {
-		t.Fatalf("GetProduct: %v", err)
-	}
-	if prod.ID != 2 || prod.Name != "Widget" || prod.Price != 9.99 {
-		t.Errorf("GetProduct = %+v", prod)
-	}
-
-	wrapped, err := client.GetWrapped(context.Background(), &GetWrappedReq{})
-	if err != nil {
-		t.Fatalf("GetWrapped: %v", err)
-	}
-	if wrapped.ID != 3 || wrapped.Name != "Bob" {
-		t.Errorf("GetWrapped = %+v", wrapped)
-	}
-
-	// allOf-composed reusable envelope -> unwrapped to User.
 	acct, err := client.GetAccount(context.Background(), &GetAccountReq{})
 	if err != nil {
 		t.Fatalf("GetAccount: %v", err)
 	}
-	if acct.ID != 4 || acct.Name != "Carol" {
-		t.Errorf("GetAccount = %+v", acct)
+	if acct.ID != 2 || acct.Name != "Bob" {
+		t.Errorf("GetAccount = %+v, want {ID:2 Name:Bob}", acct)
 	}
 }
 
 // TestEnvelopeUnwrap_SingleEnvelopeWire is the double-wrap regression guard: it
 // hits the raw HTTP body and asserts ginx wrapped the payload exactly once
-// ({code,msg,data:<payload>}), with no nested envelope inside data. Covers the
-// inline/$ref envelope variants (/user) and the allOf-composed envelope (/account).
+// ({code,msg,data:<payload>}), with no nested envelope inside data. Covers both
+// the nullable inline envelope (/user) and the allOf-composed envelope (/account).
 func TestEnvelopeUnwrap_SingleEnvelopeWire(t *testing.T) {
 	srv, _, _ := setupServer()
 	defer srv.Close()
@@ -91,5 +74,5 @@ func TestEnvelopeUnwrap_SingleEnvelopeWire(t *testing.T) {
 	}
 
 	assertSingleEnvelope("/user", `"data":{"id":1,"name":"Alice"}`)
-	assertSingleEnvelope("/account", `"data":{"id":4,"name":"Carol"}`)
+	assertSingleEnvelope("/account", `"data":{"id":2,"name":"Bob"}`)
 }

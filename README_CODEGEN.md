@@ -195,7 +195,18 @@ r.Run(":8080")
 | `text/event-stream` | SSE handler |
 | 仅重定向响应 | `ginx.RedirectRsp` |
 
-**响应封装自动解包**：ginx 运行时会自动把成功响应包装成 `{"code":0,"msg":"","data":{...}}`，所以 spec 的 response 只需描述 `data` 里的业务数据。若 spec 误把 response 写成整层 `{code,msg,data}`，codegen 默认（`output_options.unwrap_envelope: true`）会识别并只取 `data` 子 schema 生成 `Rsp`，避免运行时双壳封装。判定为严格匹配：对象且**恰好**三字段 `code`(integer)/`msg`(string)/`data`。若业务响应本身就是这三字段结构，设 `unwrap_envelope: false` 关闭。详见 [docs/CODEGEN_REFERENCE.md](docs/CODEGEN_REFERENCE.md#响应封装自动解包unwrap_envelope)。
+**响应封装自动解包**：ginx 运行时会自动把成功响应包装成 `{"code":0,"msg":"","data":{...}}`，所以 spec 的 response 只需描述 `data` 里的业务数据。若 spec 误把 response 写成整层 `{code,msg,data}`，codegen 默认（`output_options.unwrap_envelope: true`）会识别并只取 `data` 子 schema 生成 `Rsp`，避免运行时双壳封装。判定为严格匹配：对象且**恰好**三字段 `code`(integer)/`msg`(string)/`data`。同时也识别 `allOf` 组合的可复用封装（一个泛型 `Envelope` 组件 + 专项 `data` 覆盖），例如：
+
+```yaml
+schema:
+  allOf:
+    - $ref: "#/components/schemas/Envelope"   # {code,msg,data:<泛型>}
+    - properties:
+        data:
+          $ref: "#/components/schemas/UserProfile"
+```
+
+若业务响应本身就是这三字段结构，设 `unwrap_envelope: false` 关闭。OpenAPI 3.1 的可空类型数组（如 `code: {type: ["integer","null"]}`）同样会被识别。详见 [docs/CODEGEN_REFERENCE.md](docs/CODEGEN_REFERENCE.md#响应封装自动解包unwrap_envelope)。
 
 当 content type 无法表达意图时，使用 `x-ginx-response`：
 

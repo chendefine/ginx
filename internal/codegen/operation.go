@@ -572,15 +572,30 @@ func buildResponseType(opName string, op *openapi3.Operation, unwrap bool, impor
 // data sub-schema; otherwise it returns schema unchanged. The returned ref
 // retains its own .Ref/.Value so callers' alias-vs-ResolveSchema logic works
 // without further changes.
+//
+// Besides the directly-written envelope, this also recognizes the common
+// reusable-envelope pattern where the response is an allOf that composes a
+// generic Envelope component with a specific data override:
+//
+//	allOf:
+//	  - $ref: '#/components/schemas/Envelope'   # {code,msg,data:<generic>}
+//	  - properties:
+//	      data:
+//	        $ref: '#/components/schemas/UserProfile'
 func effectiveResponseSchema(ref *openapi3.SchemaRef, unwrap bool) *openapi3.SchemaRef {
 	if !unwrap || ref == nil || ref.Value == nil {
 		return ref
 	}
-	if !isGinxEnvelope(ref.Value) {
-		return ref
+	s := ref.Value
+	if isGinxEnvelope(s) {
+		if data := s.Properties["data"]; data != nil {
+			return data
+		}
 	}
-	if data := ref.Value.Properties["data"]; data != nil {
-		return data
+	if len(s.AllOf) > 0 {
+		if data := dataFromAllOfEnvelope(s); data != nil {
+			return data
+		}
 	}
 	return ref
 }
@@ -597,6 +612,87 @@ func isGinxEnvelope(s *openapi3.Schema) bool {
 		return false
 	}
 	return typeIs(code.Value, "integer") && typeIs(msg.Value, "string")
+}
+
+// dataFromAllOfEnvelope flattens s by merging its own properties with those of
+// every allOf member (recursively, $ref members resolved to their .Value). If
+// the merged shape is exactly ginx's success envelope {code:integer,
+// msg:string, data:any}, it returns the merged data sub-schema; otherwise nil.
+// This is what makes the reusable-envelope pattern unwrap correctly:
+//
+//	allOf:
+//	  - $ref: '#/components/schemas/Envelope'   # {code,msg,data:<generic>}
+//	  - properties:
+//	      data:
+//	        $ref: '#/components/schemas/UserProfile'
+//
+// A nil return lets the caller fall back to the original schema (and the
+// existing resolveAllOf path), so non-envelope allOf schemas are unaffected.
+func dataFromAllOfEnvelope(s *openapi3.Schema) *openapi3.SchemaRef {
+	merged := flattenAllOf(s)
+	if !isGinxEnvelope(merged) {
+		return nil
+	}
+	return merged.Properties["data"]
+}
+
+// flattenAllOf merges s and all of its allOf members into a single schema,
+// combining properties via mergeProperty (more concrete definitions win,
+// independent of member order). It exists only to evaluate the envelope shape,
+// so it deliberately ignores $ref identity/embedding semantics. A *Schema
+// pointer visited set guards against self-referential allOf cycles.
+func flattenAllOf(s *openapi3.Schema) *openapi3.Schema {
+	merged := &openapi3.Schema{Properties: make(openapi3.Schemas)}
+	flattenInto(merged, s, map[*openapi3.Schema]bool{})
+	return merged
+}
+
+func flattenInto(dst, src *openapi3.Schema, visited map[*openapi3.Schema]bool) {
+	if src == nil || visited[src] {
+		return
+	}
+	visited[src] = true
+	for k, v := range src.Properties {
+		mergeProperty(dst, k, v)
+	}
+	for _, member := range src.AllOf {
+		if member != nil && member.Value != nil {
+			flattenInto(dst, member.Value, visited)
+		}
+	}
+}
+
+// mergeProperty merges a single property: a concrete definition overrides a
+// placeholder one, and ties resolve last-wins. This keeps a specific data
+// override from being clobbered by the generic envelope's data regardless of
+// allOf member order (reversed order would otherwise silently unwrap to an
+// empty/generic type).
+func mergeProperty(dst *openapi3.Schema, k string, v *openapi3.SchemaRef) {
+	existing, ok := dst.Properties[k]
+	if !ok {
+		dst.Properties[k] = v
+		return
+	}
+	if schemaRefHasContent(existing) && !schemaRefHasContent(v) {
+		return // existing is the concrete definition, keep it
+	}
+	dst.Properties[k] = v
+}
+
+// schemaRefHasContent reports whether ref carries a real type definition (as
+// opposed to a placeholder like the envelope's generic data that only has a
+// description).
+func schemaRefHasContent(ref *openapi3.SchemaRef) bool {
+	if ref == nil {
+		return false
+	}
+	if ref.Ref != "" {
+		return true
+	}
+	v := ref.Value
+	return v != nil && (v.Type != nil && !v.Type.IsEmpty() || v.Format != "" || len(v.Properties) > 0 ||
+		v.Items != nil || v.AdditionalProperties.Schema != nil || v.Enum != nil ||
+		len(v.AllOf) > 0 || len(v.OneOf) > 0 || len(v.AnyOf) > 0)
 }
 
 func resolveResponseTypeName(opName string, op *openapi3.Operation) string {

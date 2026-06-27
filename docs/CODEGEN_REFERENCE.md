@@ -287,6 +287,63 @@ responses:
 # 生成: type GetUserRsp = User
 ```
 
+#### `allOf` 组合的可复用封装
+
+除了直接写出三字段封装，OpenAPI 还有一种更常见的写法：定义一个可复用的 `Envelope` 组件（`data` 为泛型占位），再用 `allOf` 把它与具体 `data` 组合起来。这种写法同样会被识别并解包：
+
+```yaml
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: { type: integer }
+        msg:  { type: string }
+        data: { description: 业务数据 }   # 泛型占位，无具体类型
+    UserProfile:
+      type: object
+      properties: { id: {type: string}, name: {type: string} }
+paths:
+  /account:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/UserProfile"
+# 生成: type GetAccountRsp = UserProfile
+```
+
+判定与合并语义：
+
+- 把 `allOf` 各成员（`$ref` 成员解析到其值）的属性递归合并后，若整体形状仍是「恰好三字段 `code`(integer)/`msg`(string)/`data`」即视为封装并解包。
+- 合并时**更具体的定义优先**：泛型 `data`（如只有 `description`）永远不会覆盖具体的 `data`，与 `allOf` 成员的书写顺序无关；具体 `data` 之间则按后写覆盖。
+- 因此下列 `allOf` 变体都会被识别：`{$ref:Envelope}` + 内联 `data` 覆盖、两个成员都是 `$ref`（封装 + 承载 `data` 的组件）、`code`/`msg` 与 `data` 拆分在不同成员里、封装壳本身由 `allOf` 定义再被 `$ref` 引用、响应 schema 同时带 `allOf` 和自身 `properties` 等。
+- 若合并后超过三字段（例如在 `data` 之外又加了业务字段），则**不是**封装壳，按既有 `allOf` 规则生成（不解包）。
+- 仅 `allOf` 参与判定。`oneOf`/`anyOf` 表示「多选一」而非属性合并，不会被当作封装壳。
+
+#### OpenAPI 3.1 可空类型
+
+OpenAPI 3.1 用类型数组表达可空（如 `["integer","null"]`）。封装判定基于 `type` 集合的成员关系（容忍 `null` 伴随项），所以 3.1 的可空封装同样会被解包：
+
+```yaml
+# 3.1 可空封装 —— 会被自动解包
+schema:
+  type: ["object", "null"]
+  properties:
+    code: { type: ["integer", "null"] }
+    msg:  { type: ["string", "null"] }
+    data: { $ref: "#/components/schemas/User" }
+# 生成: type GetUserRsp = User
+```
+
+`allOf` 组合的可复用封装在 3.1 下（成员字段为可空类型数组）同样适用。3.0 的单值 `type` 与 3.1 的类型数组在判定上等价。
+
 注意：
 
 - 这只影响生成的 Go 类型；内嵌 spec（供 Swagger UI / 非本工具生成的客户端使用）仍保留原始 `{code,msg,data}` 契约。

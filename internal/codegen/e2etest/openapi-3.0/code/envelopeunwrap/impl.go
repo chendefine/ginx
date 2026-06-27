@@ -26,4 +26,11 @@ func (s *TestService) GetWrapped(_ context.Context, _ *GetWrappedReq) (*GetWrapp
 	return &GetWrappedRsp{ID: 3, Name: "Bob"}, nil
 }
 
+// GetAccount exercises the reusable-envelope pattern: the response is an allOf
+// composing a generic Envelope component with data: $ref User. codegen flattens
+// the allOf, recognizes the envelope shape, and unwraps to User.
+func (s *TestService) GetAccount(_ context.Context, _ *GetAccountReq) (*GetAccountRsp, error) {
+	return &GetAccountRsp{ID: 4, Name: "Carol"}, nil
+}
+
 var _ ServerInterface = (*TestService)(nil)

@@ -826,6 +826,297 @@ components:
 	assertNotContains(t, code, "type GetOptOutRsp = User")
 }
 
+// The reusable-envelope pattern composes a generic Envelope component with a
+// specific data override via allOf. codegen must recognize this shape too and
+// unwrap to the data sub-schema, instead of embedding the whole Envelope plus a
+// duplicate data field (which the existing resolveAllOf path would produce).
+
+func TestE2E_Envelope_AllOfRefData(t *testing.T) {
+	// allOf: [{$ref: Envelope}, {properties:{data:{$ref: User}}}] -> alias to User.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /account:
+    get:
+      operationId: getAccount
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+components:
+  schemas:
+    Envelope:
+      type: object
+      description: 统一响应包络
+      properties:
+        code: {type: integer}
+        msg: {type: string}
+        data: {description: 业务数据}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+`)
+	assertContains(t, code, "type GetAccountRsp = User")
+	assertNotContains(t, code, "type GetAccountRsp struct")
+}
+
+func TestE2E_Envelope_AllOfInlineData(t *testing.T) {
+	// allOf with an inline data object -> XxxRsp is the business struct.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /inline:
+    get:
+      operationId: getInline
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          sku: {type: string}
+                          qty: {type: integer}
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: {type: integer}
+        msg: {type: string}
+        data: {description: 业务数据}
+`)
+	assertContains(t, code, "type GetInlineRsp struct")
+	assertContains(t, code, "Sku *string")
+	assertContains(t, code, "Qty *int")
+}
+
+func TestE2E_Envelope_AllOfViaComponentRef(t *testing.T) {
+	// The response is a $ref to a component that is itself allOf-composed.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /specialized:
+    get:
+      operationId: getSpecialized
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Specialized"
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: {type: integer}
+        msg: {type: string}
+        data: {description: 业务数据}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+    Specialized:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - properties:
+            data:
+              $ref: "#/components/schemas/User"
+`)
+	assertContains(t, code, "type GetSpecializedRsp = User")
+	assertNotContains(t, code, "type GetSpecializedRsp struct")
+}
+
+func TestE2E_Envelope_AllOfReversedOrder(t *testing.T) {
+	// Override member listed BEFORE the Envelope ref. The concrete data must
+	// still win regardless of member order (a generic data must never clobber a
+	// specific one), so this unwraps the same as the forward-order case.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /rev:
+    get:
+      operationId: getRev
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+                  - $ref: "#/components/schemas/Envelope"
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: {type: integer}
+        msg: {type: string}
+        data: {description: 业务数据}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+`)
+	assertContains(t, code, "type GetRevRsp = User")
+	assertNotContains(t, code, "type GetRevRsp struct")
+}
+
+func TestE2E_Envelope_AllOfNegativeExtraField(t *testing.T) {
+	// allOf merging the envelope with an extra business field yields four merged
+	// properties -> not the three-field envelope -> NOT unwrapped; falls back to
+	// the existing resolveAllOf embedding behavior.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /extra:
+    get:
+      operationId: getExtra
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+                      extra: {type: string}
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: {type: integer}
+        msg: {type: string}
+        data: {description: 业务数据}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+`)
+	assertContains(t, code, "type GetExtraRsp struct")
+	assertContains(t, code, "Extra *string")
+	assertNotContains(t, code, "type GetExtraRsp = User")
+}
+
+func TestE2E_Envelope_AllOfSplitMembers(t *testing.T) {
+	// code/msg in one allOf member, data in another (neither a $ref) -> still
+	// merges to the three-field envelope and unwraps.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /split:
+    get:
+      operationId: getSplit
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - properties:
+                      code: {type: integer}
+                      msg: {type: string}
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+`)
+	assertContains(t, code, "type GetSplitRsp = User")
+	assertNotContains(t, code, "type GetSplitRsp struct")
+}
+
+func TestE2E_Envelope_AllOfBothRefs(t *testing.T) {
+	// Both allOf members are $refs: a reusable envelope plus a separate
+	// component carrying the specific data override.
+	code := generateFromInlineSpec(t, `openapi: "3.0.3"
+info: {title: t, version: "1.0.0"}
+paths:
+  /both:
+    get:
+      operationId: getBoth
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - $ref: "#/components/schemas/AccountData"
+components:
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: {type: integer}
+        msg: {type: string}
+        data: {description: 业务数据}
+    User:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+    AccountData:
+      type: object
+      properties:
+        data:
+          $ref: "#/components/schemas/User"
+`)
+	assertContains(t, code, "type GetBothRsp = User")
+	assertNotContains(t, code, "type GetBothRsp struct")
+}
+
+// OpenAPI 3.1 expresses nullable fields via type arrays (e.g. ["integer","null"]).
+// The envelope predicate relies on typeIs, which tolerates a "null" companion, so
+// 3.1 nullable envelopes unwrap the same as their 3.0 counterparts.
+
+func TestE2E_Envelope_OAI31_NullableInline(t *testing.T) {
+	// 3.1 nullable inline envelope -> unwraps to the data $ref.
+	code := generateSingleFileV(t, "openapi-3.1", "envelope_unwrap.yaml")
+	assertContains(t, code, "type GetUserRsp = User")
+	assertNotContains(t, code, "type GetUserRsp struct")
+}
+
+func TestE2E_Envelope_OAI31_NullableAllOf(t *testing.T) {
+	// 3.1 nullable allOf-composed envelope -> unwraps to the data $ref.
+	code := generateSingleFileV(t, "openapi-3.1", "envelope_unwrap.yaml")
+	assertContains(t, code, "type GetAccountRsp = User")
+	assertNotContains(t, code, "type GetAccountRsp struct")
+}
+
 // generateFromInlineSpec writes spec to a temp dir and returns the generated
 // types source. Used for envelope edge cases that don't warrant a fixture.
 func generateFromInlineSpec(t *testing.T, spec string, opts ...func(*Config)) string {

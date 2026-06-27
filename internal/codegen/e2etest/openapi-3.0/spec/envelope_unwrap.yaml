@@ -55,6 +55,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiResponse"
+  /account:
+    get:
+      operationId: getAccount
+      responses:
+        "200":
+          description: Response composes a reusable Envelope with a specific data via allOf
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
 components:
   schemas:
     User:
@@ -65,6 +79,16 @@ components:
           type: integer
         name:
           type: string
+    Envelope:
+      type: object
+      description: Reusable success envelope; data is a generic placeholder specialized per operation.
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          description: 业务数据
     ApiResponse:
       type: object
       properties:
