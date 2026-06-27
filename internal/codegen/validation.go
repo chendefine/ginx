@@ -33,19 +33,24 @@ func buildBindingRules(required bool, schemaRef *openapi3.SchemaRef) string {
 		rules = append(rules, "oneof="+strings.Join(vals, " "))
 	}
 
-	if schema.Min != nil {
-		if schema.ExclusiveMin {
-			rules = append(rules, fmt.Sprintf("gt=%v", *schema.Min))
-		} else {
-			rules = append(rules, fmt.Sprintf("gte=%v", *schema.Min))
-		}
+	// Numeric bounds. OpenAPI 3.0 couples minimum/maximum with a boolean
+	// exclusiveMinimum/exclusiveMaximum modifier; OpenAPI 3.1 makes them
+	// standalone numeric bounds. ExclusiveBound carries both forms.
+	switch {
+	case schema.Min != nil && schema.ExclusiveMin.IsTrue():
+		rules = append(rules, fmt.Sprintf("gt=%v", *schema.Min))
+	case schema.Min != nil:
+		rules = append(rules, fmt.Sprintf("gte=%v", *schema.Min))
+	case schema.ExclusiveMin.Value != nil:
+		rules = append(rules, fmt.Sprintf("gt=%v", *schema.ExclusiveMin.Value))
 	}
-	if schema.Max != nil {
-		if schema.ExclusiveMax {
-			rules = append(rules, fmt.Sprintf("lt=%v", *schema.Max))
-		} else {
-			rules = append(rules, fmt.Sprintf("lte=%v", *schema.Max))
-		}
+	switch {
+	case schema.Max != nil && schema.ExclusiveMax.IsTrue():
+		rules = append(rules, fmt.Sprintf("lt=%v", *schema.Max))
+	case schema.Max != nil:
+		rules = append(rules, fmt.Sprintf("lte=%v", *schema.Max))
+	case schema.ExclusiveMax.Value != nil:
+		rules = append(rules, fmt.Sprintf("lt=%v", *schema.ExclusiveMax.Value))
 	}
 
 	if schema.MinLength != 0 {
