@@ -31,6 +31,13 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 		return nil, fmt.Errorf("load spec: %w", err)
 	}
 
+	// OpenAPI 3.2 introduces `in: querystring`. kin-openapi v0.140.0 rejects it
+	// during Validate (its parameter `in` enum predates 3.2), and the structured
+	// "whole query string as one schema" form is not representable anyway. Bridge
+	// the flat-parameter form by treating querystring as an ordinary query
+	// parameter before validation.
+	normalizeQuerystringParams(spec)
+
 	if err := spec.Validate(loader.Context); err != nil {
 		return nil, fmt.Errorf("validate spec: %w", err)
 	}
@@ -186,6 +193,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 				clientImports["strings"] = true
 				clientImports["net/url"] = true
 			}
+			if hasJSONLinesOperations(ops) {
+				clientImports["io"] = true
+			}
 			if hasClientTimeParameters(ops) {
 				clientImports["time"] = true
 			}
@@ -216,6 +226,9 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 			if hasSSEOperations(ops) {
 				importsMap["strings"] = true
 				importsMap["net/url"] = true
+			}
+			if hasJSONLinesOperations(ops) {
+				importsMap["io"] = true
 			}
 			if hasClientTimeParameters(ops) {
 				importsMap["time"] = true
@@ -376,6 +389,40 @@ func sortedSchemaNames(schemas openapi3.Schemas) []string {
 	return names
 }
 
+// normalizeQuerystringParams rewrites OpenAPI 3.2 `in: querystring` parameters
+// to `in: query`. kin-openapi v0.140.0 rejects querystring during Validate,
+// and the structured "whole query string as one schema" 3.2 form is not
+// representable there anyway, so the flat-parameter form is bound as an
+// ordinary query parameter. Parameters on webhooks are normalized too.
+func normalizeQuerystringParams(spec *openapi3.T) {
+	if spec == nil || spec.Paths == nil {
+		return
+	}
+	normalize := func(pathItem *openapi3.PathItem) {
+		if pathItem == nil {
+			return
+		}
+		rewriteIn(pathItem.Parameters)
+		for _, op := range pathItem.Operations() {
+			rewriteIn(op.Parameters)
+		}
+	}
+	for _, pathItem := range spec.Paths.Map() {
+		normalize(pathItem)
+	}
+	for _, pathItem := range spec.Webhooks {
+		normalize(pathItem)
+	}
+}
+
+func rewriteIn(params openapi3.Parameters) {
+	for _, p := range params {
+		if p != nil && p.Value != nil && p.Value.In == "querystring" {
+			p.Value.In = "query"
+		}
+	}
+}
+
 func sortedImports(m map[string]bool) []string {
 	var list []string
 	for k := range m {
@@ -388,6 +435,15 @@ func sortedImports(m map[string]bool) []string {
 func hasSSEOperations(ops []OperationDef) bool {
 	for _, op := range ops {
 		if op.IsSSE {
+			return true
+		}
+	}
+	return false
+}
+
+func hasJSONLinesOperations(ops []OperationDef) bool {
+	for _, op := range ops {
+		if op.IsJSONLines {
 			return true
 		}
 	}

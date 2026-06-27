@@ -9,7 +9,7 @@ cd "$ROOT"
 
 go build -o "$BIN" ./cmd/oapi-ginx
 
-for dir in internal/codegen/e2etest/code/*; do
+for dir in internal/codegen/e2etest/openapi-3.*/code/*; do
   if [[ -d "$dir" ]]; then
     echo "generating $dir"
     (

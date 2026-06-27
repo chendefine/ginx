@@ -33,6 +33,23 @@ func buildBindingRules(required bool, schemaRef *openapi3.SchemaRef) string {
 		rules = append(rules, "oneof="+strings.Join(vals, " "))
 	}
 
+	// const (OpenAPI 3.1) is semantically a single-value enum: emit oneof=<value>.
+	//
+	// LIMITATIONS:
+	//   - go-playground/validator's `oneof` rule is space-separated with no
+	//     escape syntax, so a string const containing whitespace cannot be
+	//     expressed — the second word would become a second allowed value.
+	//   - `oneof` PANICS on bool fields ("Bad field type bool"), so boolean
+	//     consts are documented only (no binding rule emitted). Numeric and
+	//     single-token string consts work fine; multi-word string consts must
+	//     use a custom validator via x-binding.
+	if schema.Const != nil {
+		switch schemaTypeStr(schema) {
+		case "string", "integer", "number":
+			rules = append(rules, "oneof="+fmt.Sprintf("%v", schema.Const))
+		}
+	}
+
 	// Numeric bounds. OpenAPI 3.0 couples minimum/maximum with a boolean
 	// exclusiveMinimum/exclusiveMaximum modifier; OpenAPI 3.1 makes them
 	// standalone numeric bounds. ExclusiveBound carries both forms.

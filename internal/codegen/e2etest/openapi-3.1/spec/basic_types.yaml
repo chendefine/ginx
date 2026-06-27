@@ -1,0 +1,85 @@
+openapi: "3.1.0"
+info:
+  title: Basic Types Test
+  version: "1.0.0"
+components:
+  schemas:
+    IntegerTypes:
+      type: object
+      required: [id, count]
+      properties:
+        id:
+          type: integer
+          format: int64
+        count:
+          type: integer
+          format: int32
+        plain_int:
+          type: integer
+    NumberTypes:
+      type: object
+      required: [price]
+      properties:
+        price:
+          type: number
+          format: double
+        rate:
+          type: number
+          format: float
+        plain_number:
+          type: number
+    StringTypes:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        date_only:
+          type: string
+          format: date
+        raw_data:
+          type: string
+          format: byte
+        binary_data:
+          type: string
+          format: binary
+        user_id:
+          type: string
+          format: uuid
+        website:
+          type: string
+          format: uri
+        email:
+          type: string
+          format: email
+        host:
+          type: string
+          format: hostname
+        ip_v4:
+          type: string
+          format: ipv4
+        ip_v6:
+          type: string
+          format: ipv6
+    BooleanType:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: boolean
+        deleted:
+          type: boolean
+paths:
+  /types:
+    get:
+      operationId: getTypes
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StringTypes"

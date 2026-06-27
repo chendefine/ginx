@@ -1,8 +1,11 @@
 package ginx
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"sync"
@@ -216,4 +219,67 @@ func (s *SSEStream) closeES() {
 	s.once.Do(func() {
 		go s.es.Close()
 	})
+}
+
+// JSONLinesStream is a pull-based reader for newline-delimited JSON
+// (NDJSON / JSON Lines) responses. Each Recv() returns one JSON record as
+// json.RawMessage; the caller unmarshals it into the appropriate domain type.
+// io.EOF is returned at end of stream.
+//
+// The item type is not parameterized: OpenAPI 3.2's itemSchema is dropped by
+// kin-openapi, so the item shape is not known at codegen time. Callers that
+// want typing wrap Recv() with json.Unmarshal into their own struct.
+//
+// The stream reads directly from the underlying HTTP response body, which the
+// generated client obtains via resty's Request.SetDoNotParseResponse(true).
+type JSONLinesStream struct {
+	body   io.ReadCloser
+	br     *bufio.Reader
+	ctx    context.Context
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+// NewJSONLinesStream wraps a streaming HTTP response body. The caller is
+// responsible for passing the body obtained under SetDoNotParseResponse(true);
+// otherwise the body is buffered in memory before this struct sees it. The
+// supplied context, when cancelled, aborts subsequent Recv calls.
+func NewJSONLinesStream(ctx context.Context, body io.ReadCloser) *JSONLinesStream {
+	ctx, cancel := context.WithCancel(ctx)
+	return &JSONLinesStream{
+		body:   body,
+		br:     bufio.NewReader(body),
+		ctx:    ctx,
+		cancel: cancel,
+	}
+}
+
+// Recv returns the next JSON record. Returns io.EOF when the server closes the
+// stream normally. Empty/whitespace-only lines are skipped silently.
+func (s *JSONLinesStream) Recv() (json.RawMessage, error) {
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
+	}
+	for {
+		line, err := s.br.ReadBytes('\n')
+		if len(line) > 0 {
+			if rec := bytes.TrimSpace(line); len(rec) > 0 {
+				return json.RawMessage(rec), nil
+			}
+			// blank line — keep reading only if we haven't hit EOF
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, io.EOF
+			}
+			return nil, err
+		}
+	}
+}
+
+// Close releases the underlying response body. Safe to call multiple times.
+func (s *JSONLinesStream) Close() error {
+	s.cancel()
+	s.once.Do(func() { _ = s.body.Close() })
+	return nil
 }

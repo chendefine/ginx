@@ -2,6 +2,7 @@ package ginx
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -114,6 +115,57 @@ func newSSESender(c *gin.Context) Sender {
 			Data:  evt.Data,
 			Retry: evt.Retry,
 		}); err != nil {
+			return err
+		}
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		return nil
+	}
+}
+
+// JSONLinesSender writes one JSON value to the response stream. Each call
+// produces a single compact JSON record followed by '\n' and an immediate
+// flush, matching the NDJSON / JSON Lines wire format.
+//
+// The item type is untyped (any): OpenAPI 3.2's per-item itemSchema is not
+// preserved by kin-openapi (the field is silently dropped at parse time), and
+// OpenAPI 3.1 has no per-item type at all. Callers marshal whatever domain
+// object they wish; generated handlers do not constrain the item.
+type JSONLinesSender func(item any) error
+
+// JSONLinesHandler 是 JSON Lines / NDJSON 流式场景的 RPC 风格签名.
+type JSONLinesHandler[Req any] func(ctx context.Context, req *Req, send JSONLinesSender) error
+
+// JSONLines 注册一条 JSON Lines / NDJSON 流式路由. 每个 item 经 send 写出为
+// 紧凑 JSON + '\n' 并立即 flush, 响应 Content-Type 为 application/x-ndjson.
+// 与 SSE 一样, JSON Lines 响应不走 dataWrap.
+//
+// method 显式作为参数 (不同于必须 GET 的 SSE): NDJSON 惯例是 POST, 但并不强制.
+func JSONLines[Req any](r gin.IRoutes, method, path string, fn JSONLinesHandler[Req], opts ...RouteOption) {
+	register(r, method, path, func(ctx context.Context, req *Req) (*struct{}, error) {
+		SetHeader(ctx, "Content-Type", "application/x-ndjson")
+		SetHeader(ctx, "Cache-Control", "no-cache")
+		SetHeader(ctx, "Connection", "keep-alive")
+		gc, ok := GinContext(ctx)
+		if !ok {
+			return nil, errors.New("ginx: context does not contain *gin.Context")
+		}
+		sender := newJSONLinesSender(gc)
+		if err := fn(ctx, req, sender); err != nil {
+			return nil, err
+		}
+		return nil, errResponseHandled
+	}, append([]RouteOption{NoDataWrap()}, opts...)...)
+}
+
+func newJSONLinesSender(c *gin.Context) JSONLinesSender {
+	// json.Encoder.Encode writes compact JSON and appends '\n' itself, so each
+	// call yields exactly one NDJSON record. We still flush explicitly so records
+	// reach the wire per-item rather than in gin's default buffer.
+	enc := json.NewEncoder(c.Writer)
+	return func(item any) error {
+		if err := enc.Encode(item); err != nil {
 			return err
 		}
 		if flusher, ok := c.Writer.(http.Flusher); ok {

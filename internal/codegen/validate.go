@@ -33,7 +33,7 @@ func validateOperationNames(ops []OperationDef) error {
 		seenOps[op.Name] = source
 
 		for _, name := range []string{op.Name + "Req", op.Name + "Rsp"} {
-			if name == op.Name+"Rsp" && (op.IsSSE || op.RspTypeName != name) {
+			if name == op.Name+"Rsp" && (op.IsSSE || op.IsJSONLines || op.RspTypeName != name) {
 				continue
 			}
 			if prev, ok := seenTypes[name]; ok && prev != source {
@@ -47,7 +47,7 @@ func validateOperationNames(ops []OperationDef) error {
 
 func validateClientOperations(ops []OperationDef) error {
 	for _, op := range ops {
-		if op.IsSSE {
+		if op.IsSSE || op.IsJSONLines {
 			continue
 		}
 		if hasMultipartFileFields(op) {

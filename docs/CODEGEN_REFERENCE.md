@@ -322,6 +322,56 @@ ListEvents(ctx context.Context, req *ListEventsReq, send ginx.Sender) error
 ginx.SSE(r, "/events", s.ListEvents, opts...)
 ```
 
+### JSON Lines / NDJSON 流式 (OpenAPI 3.2)
+
+当 operation 满足以下任一条件时，生成 JSON Lines / NDJSON 流式签名：
+- 设置了 `x-ginx-jsonl: true` 扩展字段
+- 成功响应 content-type 为 `application/jsonl` 或 `application/x-ndjson`
+
+`application/json-seq`（RFC 7464）**不**被识别（其 `0x1E` 分隔符会破坏按行切分）。
+
+handler 签名（每个 item 经 `send` 写为紧凑 JSON + `\n` 并立即 flush）：
+```go
+TailLogs(ctx context.Context, req *TailLogsReq, send ginx.JSONLinesSender) error
+```
+
+路由注册使用 `ginx.JSONLines`（method 作参数，NDJSON 惯例 POST 但不强制）：
+```go
+ginx.JSONLines(r, "GET", "/logs/:source/tail", s.TailLogs, opts...)
+```
+
+客户端方法返回 `*ginx.JSONLinesStream`，内部用 `resty` 的 `SetResponseDoNotParse(true)` 关闭响应缓冲，`Recv()` 返回每行 JSON 的 `json.RawMessage`，调用方自行 `json.Unmarshal`，结束时 `Close()`。
+
+> **类型说明**：item 类型为无类型（`any` / `json.RawMessage`）。OpenAPI 3.2 的 `itemSchema` 在 kin-openapi v0.140.0 中没有对应结构字段（解析期被丢弃），因此 codegen 期无法得知 item 形状（与 SSE 的 `Event.Data any` 一致）。
+
+### Webhooks (OpenAPI 3.1)
+
+顶层 `webhooks` 下的每个入站 operation 会生成接收端处理器。webhook 名是标识符而非 URL，ginx 合成为确定性路由 `/webhooks/<name>`（小写、非法字符替换为 `-`），按 key 字典序处理以保证输出可复现。webhook 与普通 path operation 走同一套模板（支持 JSON / SSE / JSON Lines 响应）。
+
+```yaml
+webhooks:
+  orderCreated:
+    post:
+      operationId: handleOrderCreated
+      requestBody: { required: true, content: { application/json: { schema: { ... } } } }
+      responses: { "200": { description: ack } }
+```
+生成 `ginx.POST(r, "/webhooks/ordercreated", s.HandleOrderCreated, opts...)`。
+
+### OpenAPI 3.1 schema 特性
+
+- **`const`** → 校验规则 `oneof=<value>`（仅对 `string`/`integer`/`number` 生成；validator 的 `oneof` 会在 `bool` 字段上 panic，故布尔 const 仅作文档，不生成 binding）。
+- **`prefixItems`（元组）** → `[]any`（位置类型丢失，JSON 数组不会自动反序列化进 Go struct）。
+- **可空 type 数组**（`["string","null"]`、`["array","null"]` 等）→ 标量变指针；可空数组变 `[]<elem>`（Go 切片本身即可为 nil）。
+- 数值型 `exclusiveMinimum`/`exclusiveMaximum`（独立边界）→ `gt=`/`lt=`。
+- `webhooks`、`$defs`、license `identifier`、Path Item `$ref` 等均可解析且不破坏生成。
+
+### OpenAPI 3.2 支持边界
+
+`openapi: "3.2.0"` 文档可被 kin-openapi v0.140.0 加载与校验（按 3.1-or-later 处理）。可工作的 3.2 特性：SSE、JSON Lines（见上）、`in: querystring`（归一化为普通 query 参数；其结构化“整个 query 串当一个 schema”形式不可表达）。
+
+> **库限制**：kin-openapi v0.140.0（当前最新版，无更新版可升）的 `Validate()` **拒绝** 3.2 全新的结构化字段 —— `itemSchema`（MediaType）、`query` 方法、`additionalOperations`、结构化 Tags（`kind`/`parent`/`summary`）。这些会在校验阶段以清晰错误报出（而非静默误生成）。需要这些字段时请升级到支持 3.2 的 kin-openapi 版本。
+
 ## HTTP 客户端 SDK 生成
 
 配置 `output.client` 或 `output_options.generate_client: true` 后，oapi-ginx 会为每个 operation 生成类型安全的 HTTP 客户端方法，基于 [resty.dev/v3](https://resty.dev)。

@@ -17,6 +17,7 @@ type OperationDef struct {
 	Path        string
 	GinPath     string
 	IsSSE       bool
+	IsJSONLines bool
 	RspTypeName string
 	Request     *StructDef
 	Response    *TypeDef
@@ -26,8 +27,7 @@ func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, s
 	var ops []OperationDef
 	var extraTypes []TypeDef
 
-	paths := sortedPaths(spec.Paths.Map())
-	for _, path := range paths {
+	for _, path := range sortedPaths(spec.Paths.Map()) {
 		pathItem := spec.Paths.Map()[path]
 		methodOps, err := methodOperations(pathItem)
 		if err != nil {
@@ -37,42 +37,84 @@ func ExtractOperations(spec *openapi3.T, cfg *Config, imports map[string]bool, s
 			if mo.op == nil {
 				continue
 			}
-
 			if cfg != nil && !cfg.ShouldIncludeOperation(mo.op.Tags) {
 				continue
 			}
-
-			opName := OperationName(mo.method, path, mo.op.OperationID)
-			if err := validateOperationResponses(opName, mo.method, path, mo.op); err != nil {
-				return nil, nil, err
+			opDef, extra, err := buildOperationDef(mo.method, path, pathItem, mo.op, cfg, imports, seen)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", path, err)
 			}
-			reqStruct, reqExtra := buildRequestStruct(opName, pathItem, mo.op, imports, seen)
-			extraTypes = append(extraTypes, reqExtra...)
-
-			sse := isSSEOperation(mo.op)
-			rspTypeName := "struct{}"
-
-			var rspDef *TypeDef
-			var rspExtra []TypeDef
-			if !sse {
-				rspTypeName = resolveResponseTypeName(opName, mo.op)
-				rspDef, rspExtra = buildResponseType(opName, mo.op, imports, seen)
-				extraTypes = append(extraTypes, rspExtra...)
-			}
-
-			ops = append(ops, OperationDef{
-				Name:        opName,
-				Method:      mo.method,
-				Path:        path,
-				GinPath:     swaggerPathToGin(path),
-				IsSSE:       sse,
-				RspTypeName: rspTypeName,
-				Request:     reqStruct,
-				Response:    rspDef,
-			})
+			ops = append(ops, opDef)
+			extraTypes = append(extraTypes, extra...)
 		}
 	}
+
+	// Webhooks (OpenAPI 3.1+): each entry is an inbound operation the server
+	// must handle. The webhook name is an identifier, not a URL — synthesize a
+	// deterministic /webhooks/<name> route. Walk keys alphabetically for
+	// reproducible output. Absent in 3.0 specs, so this is a no-op there.
+	for _, whName := range sortedWebhookNames(spec.Webhooks) {
+		pathItem := spec.Webhooks[whName]
+		if pathItem == nil {
+			continue
+		}
+		methodOps, err := methodOperations(pathItem)
+		if err != nil {
+			return nil, nil, fmt.Errorf("webhook %s: %w", whName, err)
+		}
+		whPath := "/webhooks/" + sanitizePathSegment(whName)
+		for _, mo := range methodOps {
+			if mo.op == nil {
+				continue
+			}
+			if cfg != nil && !cfg.ShouldIncludeOperation(mo.op.Tags) {
+				continue
+			}
+			opDef, extra, err := buildOperationDef(mo.method, whPath, pathItem, mo.op, cfg, imports, seen)
+			if err != nil {
+				return nil, nil, fmt.Errorf("webhook %s: %w", whName, err)
+			}
+			ops = append(ops, opDef)
+			extraTypes = append(extraTypes, extra...)
+		}
+	}
+
 	return ops, extraTypes, nil
+}
+
+// buildOperationDef turns a single (method, path, operation) into an
+// OperationDef plus any auxiliary types (request body flattening, response
+// schema). Shared by the paths loop and the webhooks loop so the two stay in
+// lockstep.
+func buildOperationDef(method, path string, pathItem *openapi3.PathItem, op *openapi3.Operation, cfg *Config, imports map[string]bool, seen map[string]bool) (OperationDef, []TypeDef, error) {
+	opName := OperationName(method, path, op.OperationID)
+	if err := validateOperationResponses(opName, method, path, op); err != nil {
+		return OperationDef{}, nil, err
+	}
+	reqStruct, reqExtra := buildRequestStruct(opName, pathItem, op, imports, seen)
+
+	sse := isSSEOperation(op)
+	jl := isJSONLinesOperation(op)
+	rspTypeName := "struct{}"
+
+	var rspDef *TypeDef
+	var rspExtra []TypeDef
+	if !sse && !jl {
+		rspTypeName = resolveResponseTypeName(opName, op)
+		rspDef, rspExtra = buildResponseType(opName, op, imports, seen)
+	}
+
+	return OperationDef{
+		Name:        opName,
+		Method:      method,
+		Path:        path,
+		GinPath:     swaggerPathToGin(path),
+		IsSSE:       sse,
+		IsJSONLines: jl,
+		RspTypeName: rspTypeName,
+		Request:     reqStruct,
+		Response:    rspDef,
+	}, append(reqExtra, rspExtra...), nil
 }
 
 func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3.Operation, imports map[string]bool, seen map[string]bool) (*StructDef, []TypeDef) {
@@ -97,7 +139,10 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 		}
 
 		var source string
-		if param.In == "query" {
+		// OpenAPI 3.2 introduces `in: querystring` (bind the whole query string
+		// as one schema). kin-openapi drops the structured form, leaving a flat
+		// scalar Parameter, so we treat it like an ordinary query parameter.
+		if param.In == "query" || param.In == "querystring" {
 			source = fieldSourceQuery
 		}
 		if !required && !isNilable(fieldType) {
@@ -108,7 +153,7 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 		switch param.In {
 		case "path":
 			tags = append(tags, Tag{Key: "uri", Value: param.Name})
-		case "query":
+		case "query", "querystring":
 			tags = append(tags, Tag{Key: "form", Value: param.Name})
 		case "header":
 			tags = append(tags, Tag{Key: "header", Value: param.Name})
@@ -375,6 +420,36 @@ func sortedPaths(m map[string]*openapi3.PathItem) []string {
 	return paths
 }
 
+func sortedWebhookNames(m map[string]*openapi3.PathItem) []string {
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// sanitizePathSegment produces a gin-route-safe path segment from a webhook
+// name. Webhook names are spec-defined identifiers (often CamelCase or
+// kebab-case), not URLs; lower-case and replace any byte outside [a-z0-9._-]
+// with '-' so the generated route never conflicts with gin's path grammar.
+func sanitizePathSegment(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9',
+			r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
 func swaggerPathToGin(path string) string {
 	var result []byte
 	i := 0
@@ -410,6 +485,41 @@ func isSSEOperation(op *openapi3.Operation) bool {
 		return r.Value.Content.Get("text/event-stream") != nil
 	}
 	return false
+}
+
+// isJSONLinesOperation detects NDJSON / JSON Lines streaming responses. The
+// x-ginx-jsonl extension (mirroring x-ginx-sse) lets a spec declare streaming
+// even when the media type is application/json; otherwise the success response
+// media type must be application/jsonl or application/x-ndjson.
+//
+// application/json-seq (RFC 7464) is intentionally EXCLUDED: its framing
+// prepends a 0x1E record separator before each value, which would corrupt the
+// newline-splitting reader in ginx.JSONLinesStream.
+func isJSONLinesOperation(op *openapi3.Operation) bool {
+	if v, ok := op.Extensions["x-ginx-jsonl"]; ok {
+		if b, ok := v.(bool); ok && b {
+			return true
+		}
+	}
+	if op.Responses == nil {
+		return false
+	}
+	if _, r := selectSuccessResponse(op.Responses); r != nil && r.Value != nil {
+		content := r.Value.Content
+		if content != nil {
+			if isJSONLinesMediaType(content.Get("application/jsonl")) ||
+				isJSONLinesMediaType(content.Get("application/x-ndjson")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isJSONLinesMediaType(mt *openapi3.MediaType) bool { return mt != nil }
+
+func isJSONLinesContentType(ct string) bool {
+	return ct == "application/jsonl" || ct == "application/x-ndjson"
 }
 
 func buildResponseType(opName string, op *openapi3.Operation, imports map[string]bool, seen map[string]bool) (*TypeDef, []TypeDef) {
@@ -687,6 +797,7 @@ func isBinaryContentType(ct string) bool {
 		if ct == "application/json" || ct == "application/xml" ||
 			ct == "application/x-www-form-urlencoded" ||
 			ct == "application/graphql" ||
+			ct == "application/jsonl" || ct == "application/x-ndjson" ||
 			strings.HasSuffix(ct, "+json") ||
 			strings.HasSuffix(ct, "+xml") {
 			return false

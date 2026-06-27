@@ -72,6 +72,10 @@ Current codegen behavior:
 - Multiple `2xx` JSON responses with different schemas fail generation unless one response has `x-ginx-primary-response: true`.
 - Multipart file upload server types are supported, but client generation fails clearly for multipart file upload operations.
 - SSE client path params are URL path escaped.
+- OpenAPI 3.1/3.2 are supported (specs live under `internal/codegen/e2etest/openapi-3.<x>/`). The harness is version-aware: `specPath(version, name)`; legacy `testdataPath` resolves to `openapi-3.0`. `scripts/test-codegen-e2e.sh` globs `openapi-3.*/code/*`.
+- JSON Lines / NDJSON streaming: `x-ginx-jsonl: true` or a `application/jsonl`/`application/x-ndjson` success response generates a `ginx.JSONLines` handler (`send ginx.JSONLinesSender`) and a client returning `*ginx.JSONLinesStream` (uses resty `SetResponseDoNotParse`). `application/json-seq` is NOT supported.
+- OpenAPI 3.1 additions: `const`→`oneof` (string/number only; bool const skipped — validator panics), `prefixItems` tuples→`[]any`, nullable type arrays (`["X","null"]`) resolve to pointer scalars / typed slices, top-level `webhooks` synthesize `/webhooks/<name>` receiver routes, numeric `exclusiveMinimum/Maximum`.
+- OpenAPI 3.2: `openapi: "3.2.0"` loads/validates; `in: querystring` is normalized to `query`. Brand-new 3.2 struct fields (`itemSchema`, `query` method, `additionalOperations`, structured Tags) are REJECTED by kin-openapi v0.140.0's `Validate()` (latest version; no upgrade path yet) with a clear error — see `TestE2E_OAI32_UnsupportedStructuralFieldsRejected`.
 
 ## Editing Notes
 

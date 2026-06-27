@@ -1,0 +1,86 @@
+openapi: "3.2.0"
+info:
+  title: SSE Operations Test
+  version: "1.0.0"
+paths:
+  /events/stream:
+    get:
+      operationId: streamEvents
+      parameters:
+        - name: channel
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: last_event_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE stream via content-type
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /rooms/{room_id}/messages:
+    get:
+      operationId: streamRoomMessages
+      parameters:
+        - name: room_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: X-Auth-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE stream with path/query/header params
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /notifications:
+    get:
+      operationId: streamNotifications
+      x-ginx-sse: true
+      parameters:
+        - name: X-Auth-Token
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: types
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE via x-ginx-sse extension
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+  /metrics:
+    get:
+      operationId: streamMetrics
+      x-ginx-sse: true
+      responses:
+        "200":
+          description: SSE with no params
+          content:
+            application/json:
+              schema:
+                type: object

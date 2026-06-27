@@ -1,0 +1,35 @@
+openapi: "3.1.0"
+info:
+  title: Const Types Test (OpenAPI 3.1)
+  version: "1.0.0"
+paths:
+  /const:
+    post:
+      operationId: createConst
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                # const (OpenAPI 3.1) -> validator oneof=<value>
+                kind:
+                  type: string
+                  const: payment
+                retries:
+                  type: integer
+                  const: 3
+                active:
+                  type: boolean
+                  const: true
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean

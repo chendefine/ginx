@@ -1,0 +1,57 @@
+openapi: "3.2.0"
+info:
+  title: JSON Lines Test (OpenAPI 3.2)
+  version: "1.0.0"
+paths:
+  /logs/{source}/tail:
+    get:
+      operationId: tailLogs
+      parameters:
+        - name: source
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: follow
+          in: query
+          schema:
+            type: boolean
+        - name: X-Trace-Id
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: newline-delimited JSON log stream (JSON Lines)
+          content:
+            application/jsonl:
+              schema:
+                type: object
+                properties:
+                  level:
+                    type: string
+                  msg:
+                    type: string
+  /ingest:
+    post:
+      operationId: ingestBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [count]
+              properties:
+                count:
+                  type: integer
+      responses:
+        "200":
+          description: NDJSON acknowledgment stream
+          content:
+            application/x-ndjson:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean

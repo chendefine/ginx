@@ -1,0 +1,33 @@
+openapi: "3.2.0"
+info:
+  title: Querystring Param Test (OpenAPI 3.2)
+  version: "1.0.0"
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        # OpenAPI 3.2 `in: querystring`. kin-openapi drops the structured
+        # "whole query string as one schema" form; we receive a flat scalar
+        # parameter and bind it as an ordinary query (form) parameter.
+        - name: q
+          in: querystring
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: querystring
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  q:
+                    type: string
+                  limit:
+                    type: integer

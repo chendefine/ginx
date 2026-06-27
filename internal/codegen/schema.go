@@ -75,11 +75,11 @@ func ResolveSchema(name string, schemaRef *openapi3.SchemaRef, imports map[strin
 		return resolveEnum(name, schema)
 	}
 
-	if schema.Type != nil && schema.Type.Is("array") {
+	if typeIs(schema, "array") {
 		return resolveArrayAlias(name, schema, imports)
 	}
 
-	if (schema.Type != nil && schema.Type.Is("object")) || len(schema.Properties) > 0 {
+	if typeIs(schema, "object") || len(schema.Properties) > 0 {
 		return resolveObject(name, schema, imports, seen)
 	}
 
@@ -117,8 +117,21 @@ func resolveEnum(name string, schema *openapi3.Schema) []TypeDef {
 }
 
 func resolveArrayAlias(name string, schema *openapi3.Schema, imports map[string]bool) []TypeDef {
+	if isArrayTuple(schema) {
+		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "[]any"}}}
+	}
 	elemType := resolveTypeString(schema.Items, imports)
 	return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "[]" + elemType}}}
+}
+
+// isArrayTuple reports whether an array schema is an OpenAPI 3.1 positional
+// tuple declared via prefixItems. Such tuples are mapped to []any because JSON
+// arrays do not unmarshal into ordinary Go structs without per-tuple custom
+// codecs, and uniform-tuple ([N]T) detection adds complexity for a rare case.
+// Callers wanting positional typing define a domain struct with custom
+// MarshalJSON/UnmarshalJSON.
+func isArrayTuple(schema *openapi3.Schema) bool {
+	return typeIs(schema, "array") && len(schema.PrefixItems) > 0
 }
 
 func resolveObject(name string, schema *openapi3.Schema, imports map[string]bool, seen map[string]bool) []TypeDef {
@@ -223,12 +236,15 @@ func resolveFieldType(nestedName string, ref *openapi3.SchemaRef, imports map[st
 	}
 	schema := ref.Value
 
-	if schema.Type != nil && schema.Type.Is("object") && len(schema.Properties) > 0 {
+	if typeIs(schema, "object") && len(schema.Properties) > 0 {
 		types := ResolveSchema(nestedName, ref, imports, seen)
 		return nestedName, types
 	}
 
-	if schema.Type != nil && schema.Type.Is("array") && schema.Items != nil {
+	if typeIs(schema, "array") && schema.Items != nil {
+		if isArrayTuple(schema) {
+			return "[]any", nil
+		}
 		elemType, extra := resolveFieldType(nestedName+"Item", schema.Items, imports, seen)
 		return "[]" + elemType, extra
 	}
@@ -248,12 +264,15 @@ func resolveTypeString(ref *openapi3.SchemaRef, imports map[string]bool) string 
 		return "any"
 	}
 
-	if schema.Type != nil && schema.Type.Is("array") {
+	if typeIs(schema, "array") {
+		if isArrayTuple(schema) {
+			return "[]any"
+		}
 		elemType := resolveTypeString(schema.Items, imports)
 		return "[]" + elemType
 	}
 
-	if schema.Type != nil && schema.Type.Is("object") {
+	if typeIs(schema, "object") {
 		if schema.AdditionalProperties.Schema != nil {
 			valType := resolveTypeString(schema.AdditionalProperties.Schema, imports)
 			return "map[string]" + valType
@@ -326,6 +345,16 @@ func schemaTypeStr(schema *openapi3.Schema) string {
 		return ""
 	}
 	return types[0]
+}
+
+// typeIs reports whether schema's type set contains typ. Unlike
+// (*openapi3.Types).Is (which is strict single-type, returning false for
+// OpenAPI 3.1 nullable type arrays like ["array","null"]), this tolerates a
+// "null" companion so nullable structured types still resolve to their
+// structured Go form (e.g. ["array","null"] -> []string, since Go slices are
+// already nilable).
+func typeIs(schema *openapi3.Schema, typ string) bool {
+	return schema != nil && schema.Type != nil && schema.Type.Includes(typ)
 }
 
 func sortedPropertyNames(props openapi3.Schemas) []string {

@@ -1,0 +1,123 @@
+openapi: "3.1.0"
+info:
+  title: Naming Rules Test
+  version: "1.0.0"
+components:
+  schemas:
+    123_error:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: integer
+          format: int32
+    http_url_config:
+      type: object
+      properties:
+        http_url:
+          type: string
+        api_key:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        html_content:
+          type: string
+        json_data:
+          type: string
+        tcp_port:
+          type: integer
+        ssh_key:
+          type: string
+        cpu_usage:
+          type: number
+          format: float
+        dns_server:
+          type: string
+        tls_enabled:
+          type: boolean
+        xml_payload:
+          type: string
+        uuid_field:
+          type: string
+          format: uuid
+paths:
+  /api/{api_id}/http_endpoints:
+    get:
+      operationId: list_http_api_endpoints
+      parameters:
+        - name: api_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ip_address
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    url:
+                      type: string
+  /numeric-schema-ref:
+    get:
+      operationId: get_numeric_schema_ref
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/123_error"
+  /no-operation-id/{resource_id}:
+    get:
+      parameters:
+        - name: resource_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+    post:
+      parameters:
+        - name: resource_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data:
+                  type: string
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string

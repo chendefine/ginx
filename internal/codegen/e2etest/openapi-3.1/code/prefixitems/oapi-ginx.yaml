@@ -1,0 +1,6 @@
+package: prefixitems
+spec: ../../spec/prefix_items.yaml
+output:
+  types: types.gen.go
+  server: server.gen.go
+  client: client.gen.go

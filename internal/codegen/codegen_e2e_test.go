@@ -9,16 +9,32 @@ import (
 	"testing"
 )
 
-func testdataPath(name string) string {
+// specPath resolves a fixture spec under a versioned e2e directory, e.g.
+// specPath("openapi-3.0", "basic_types.yaml").
+func specPath(version, name string) string {
 	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "e2etest", "spec", name)
+	return filepath.Join(filepath.Dir(filename), "e2etest", version, "spec", name)
+}
+
+// testdataPath keeps the legacy single-argument callers pointed at the 3.0
+// suite (the flat e2etest/spec/ layout was removed during the per-version
+// restructure).
+func testdataPath(name string) string {
+	return specPath("openapi-3.0", name)
 }
 
 func generateSingleFile(t *testing.T, specFile string, opts ...func(*Config)) string {
 	t.Helper()
+	return generateSingleFileAt(t, testdataPath(specFile), opts...)
+}
+
+// generateSingleFileAt is the version-aware core: it takes an already-resolved
+// spec path (use specPath(version, name) to build one for a non-3.0 suite).
+func generateSingleFileAt(t *testing.T, resolvedSpecPath string, opts ...func(*Config)) string {
+	t.Helper()
 	cfg := Config{
 		PackageName: "api",
-		SpecPath:    testdataPath(specFile),
+		SpecPath:    resolvedSpecPath,
 		OutputOptions: OutputOptions{
 			SkipFmt: true,
 		},
@@ -33,11 +49,22 @@ func generateSingleFile(t *testing.T, specFile string, opts ...func(*Config)) st
 	return string(result.Types)
 }
 
+// generateSingleFileV generates from a versioned suite (e.g. "openapi-3.1").
+func generateSingleFileV(t *testing.T, version, specFile string, opts ...func(*Config)) string {
+	t.Helper()
+	return generateSingleFileAt(t, specPath(version, specFile), opts...)
+}
+
 func generateMultiFile(t *testing.T, specFile string, opts ...func(*Config)) *GenerateResult {
+	t.Helper()
+	return generateMultiFileAt(t, testdataPath(specFile), opts...)
+}
+
+func generateMultiFileAt(t *testing.T, resolvedSpecPath string, opts ...func(*Config)) *GenerateResult {
 	t.Helper()
 	cfg := Config{
 		PackageName: "api",
-		SpecPath:    testdataPath(specFile),
+		SpecPath:    resolvedSpecPath,
 		Output: OutputConfig{
 			Types:  "types.gen.go",
 			Server: "server.gen.go",
@@ -55,6 +82,11 @@ func generateMultiFile(t *testing.T, specFile string, opts ...func(*Config)) *Ge
 		t.Fatalf("GenerateMulti failed: %v", err)
 	}
 	return result
+}
+
+func generateMultiFileV(t *testing.T, version, specFile string, opts ...func(*Config)) *GenerateResult {
+	t.Helper()
+	return generateMultiFileAt(t, specPath(version, specFile), opts...)
 }
 
 func assertContains(t *testing.T, code, substr string) {
@@ -672,6 +704,305 @@ func TestE2E_Validation_DefaultValues(t *testing.T) {
 	assertContains(t, code, `default:"1"`)
 	assertContains(t, code, `default:"20"`)
 	assertContains(t, code, `default:"created_at"`)
+}
+
+// ============================================================
+// Module 5b: OpenAPI 3.1
+//
+// openapi-3.1/spec/openapi31.yaml uses `openapi: "3.1.0"`. The behavior under
+// test is what 3.1 changes relative to 3.0:
+//   - exclusiveMinimum/exclusiveMaximum are standalone numeric bounds
+//     (not boolean modifiers on minimum/maximum).
+//   - `type` may be an array, e.g. ["string", "null"].
+// Everything else (formats, enums, inclusive min/max, array rules) must
+// keep working unchanged under a 3.1 document.
+// ============================================================
+
+func TestE2E_OAI31_NumericExclusiveBounds(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "openapi31.yaml")
+
+	// exclusiveMinimum: 0 / exclusiveMaximum: 100 with NO companion
+	// minimum/maximum must become exclusive validator bounds.
+	assertContains(t, code, `Score int `+"`"+`json:"score" binding:"required,gt=0,lt=100"`+"`")
+	// The 3.0-style inclusive gte/lte must NOT be emitted for score.
+	assertNotContains(t, code, `json:"score" binding:"required,gte=0`)
+}
+
+func TestE2E_OAI31_InclusiveBounds(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "openapi31.yaml")
+
+	// Inclusive minimum/maximum still map to gte/lte under 3.1.
+	assertContains(t, code, `Level int `+"`"+`json:"level" binding:"required,gte=1,lte=10"`+"`")
+}
+
+func TestE2E_OAI31_NullableTypeArray(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "openapi31.yaml")
+
+	// `type: ["string", "null"]` must parse without breaking generation.
+	assertContains(t, code, `Nickname *string `+"`"+`json:"nickname"`+"`")
+}
+
+func TestE2E_OAI31_StringAndEnumAndArray(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "openapi31.yaml")
+
+	assertContains(t, code, `Name string `+"`"+`json:"name" binding:"required,min=2,max=100"`+"`")
+	assertContains(t, code, `Email string `+"`"+`json:"email" binding:"required,email"`+"`")
+	assertContains(t, code, `Status string `+"`"+`json:"status" binding:"required,oneof=active inactive"`+"`")
+	assertContains(t, code, `Tags []string `+"`"+`json:"tags" binding:"min=1,unique"`+"`")
+}
+
+func TestE2E_OAI31_RoutesAndValidGo(t *testing.T) {
+	multi := generateMultiFileV(t, "openapi-3.1", "openapi31.yaml")
+
+	assertContains(t, string(multi.Server), `ginx.POST(r, "/oai31/validate", s.CreateOai31, opts...)`)
+	assertContains(t, string(multi.Server), `CreateOai31(ctx context.Context, req *CreateOai31Req) (*CreateOai31Rsp, error)`)
+	assertValidGo(t, string(multi.Types))
+	assertValidGo(t, string(multi.Server))
+	assertValidGo(t, string(multi.Client))
+}
+
+// ============================================================
+// Module 5c: OpenAPI 3.1 full parity + new features
+//
+// The 12 aligned specs under openapi-3.1/spec/ are the 3.0 scenarios
+// re-declared as openapi: "3.1.0" (with the lone 3.0-ism — boolean
+// exclusiveMinimum/exclusiveMaximum — rewritten in 3.1 numeric form, which
+// yields the same gt=/lt= bindings). They MUST generate byte-identical code
+// to the 3.0 originals. The dedicated feature specs below cover 3.1-only
+// additions: const, prefixItems tuples, nullable type arrays, webhooks, $defs.
+// ============================================================
+
+func TestE2E_OAI31_Parity_AlignedSpecsIdentical(t *testing.T) {
+	// Every aligned 3.1 spec must produce the same generated types as its 3.0
+	// counterpart — proving the full 3.0 test surface is covered under 3.1.
+	aligned := []string{
+		"basic_types", "client_sdk", "complex_types", "config_tags",
+		"naming", "request_params", "response_types", "server_interface",
+		"server_name", "sse_operations", "type_mapping", "validation",
+	}
+	for _, name := range aligned {
+		t.Run(name, func(t *testing.T) {
+			v30 := generateSingleFile(t, name+".yaml")
+			v31 := generateSingleFileV(t, "openapi-3.1", name+".yaml")
+			if v30 != v31 {
+				t.Fatalf("3.1 output differs from 3.0 for %s.yaml\n--- 3.0 ---\n%s\n--- 3.1 ---\n%s", name, v30, v31)
+			}
+		})
+	}
+}
+
+func TestE2E_OAI31_Parity_MultiFileServerClientIdentical(t *testing.T) {
+	// Spot-check multi-file server+client parity for two representative specs.
+	for _, name := range []string{"server_interface", "sse_operations"} {
+		t.Run(name, func(t *testing.T) {
+			a := generateMultiFile(t, name+".yaml")
+			b := generateMultiFileV(t, "openapi-3.1", name+".yaml")
+			if string(a.Server) != string(b.Server) {
+				t.Fatalf("server output differs for %s", name)
+			}
+			if string(a.Client) != string(b.Client) {
+				t.Fatalf("client output differs for %s", name)
+			}
+		})
+	}
+}
+
+func TestE2E_OAI31_Const(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "const_types.yaml")
+
+	// string/integer const -> oneof=<value>.
+	assertContains(t, code, `Kind *string `+"`"+`json:"kind" binding:"oneof=payment"`+"`")
+	assertContains(t, code, `Retries *int `+"`"+`json:"retries" binding:"oneof=3"`+"`")
+	// boolean const -> NO binding rule (validator oneof panics on bool).
+	assertContains(t, code, `Active *bool `+"`"+`json:"active"`+"`")
+	assertNotContains(t, code, `oneof=true`)
+	assertValidGo(t, code)
+}
+
+func TestE2E_OAI31_PrefixItemsTuples(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "prefix_items.yaml")
+
+	// Top-level tuple -> []any.
+	assertContains(t, code, "type Point = []any")
+	// Tuple as object property -> []any; tuple nested in array item -> [][]any.
+	assertContains(t, code, "Coords []any")
+	assertContains(t, code, "Samples [][]any")
+	assertValidGo(t, code)
+}
+
+func TestE2E_OAI31_NullableTypeArrays(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "nullable_types.yaml")
+
+	// Scalar nullable type arrays -> pointers of the scalar Go type.
+	assertContains(t, code, `Nickname *string `+"`"+`json:"nickname"`+"`")
+	assertContains(t, code, `Age *int `+"`"+`json:"age"`+"`")
+	assertContains(t, code, `Score *float64 `+"`"+`json:"score"`+"`")
+	assertContains(t, code, `Flag *bool `+"`"+`json:"flag"`+"`")
+	// Nullable array ["array","null"] -> []string (Go slices are nilable).
+	assertContains(t, code, `Tags []string `+"`"+`json:"tags"`+"`")
+	assertValidGo(t, code)
+}
+
+func TestE2E_OAI31_Webhooks(t *testing.T) {
+	multi := generateMultiFileV(t, "openapi-3.1", "webhooks.yaml")
+	server := string(multi.Server)
+
+	// Webhook synthesized as a receiver route under /webhooks/<name>.
+	assertContains(t, server, `ginx.POST(r, "/webhooks/ordercreated", s.HandleOrderCreated, opts...)`)
+	assertContains(t, server, "HandleOrderCreated(ctx context.Context, req *HandleOrderCreatedReq) (*HandleOrderCreatedRsp, error)")
+	assertValidGo(t, server)
+	assertValidGo(t, string(multi.Client))
+}
+
+func TestE2E_OAI31_DefsAndRefs(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.1", "defs_and_refs.yaml")
+
+	// license.identifier + $defs block parse without breaking generation;
+	// top-level $ref schemas resolve to generated types.
+	assertContains(t, code, "type Address struct")
+	assertContains(t, code, "type Person struct")
+	assertContains(t, code, "Home *Address")
+	assertContains(t, code, "Shipping *Address")
+	assertValidGo(t, code)
+}
+
+// ============================================================
+// Module 5d: OpenAPI 3.2 (SSE + JSON Lines + querystring)
+//
+// openapi-3.2/spec/* uses `openapi: "3.2.0"`. kin-openapi v0.140.0 loads and
+// validates 3.2.0 documents (treats them as 3.1-or-later), but its strict
+// Validate REJECTS the brand-new 3.2 struct fields (itemSchema on MediaType,
+// the QUERY method, additionalOperations, structured Tags) and the
+// `in: querystring` parameter location. ginx normalizes querystring -> query
+// (the structured form is unrepresentable anyway) and otherwise surfaces those
+// rejections as clear errors. The genuinely buildable 3.2 streaming features —
+// SSE (text/event-stream) and JSON Lines (application/jsonl, application/
+// x-ndjson) — are exercised by real round-trip fixtures under
+// openapi-3.2/code/.
+// ============================================================
+
+func TestE2E_OAI32_VersionLoadsAndGenerates(t *testing.T) {
+	// A 3.2.0 document must load, validate, and generate valid Go.
+	multi := generateMultiFileV(t, "openapi-3.2", "sse_operations.yaml")
+	assertValidGo(t, string(multi.Types))
+	assertValidGo(t, string(multi.Server))
+	assertValidGo(t, string(multi.Client))
+}
+
+func TestE2E_OAI32_SSEUnderDoc(t *testing.T) {
+	server := string(generateMultiFileV(t, "openapi-3.2", "sse_operations.yaml").Server)
+	assertContains(t, server, "StreamEvents(ctx context.Context, req *StreamEventsReq, send ginx.Sender) error")
+	assertContains(t, server, `ginx.SSE(r, "/events/stream", s.StreamEvents, opts...)`)
+}
+
+func TestE2E_OAI32_JSONLinesServer(t *testing.T) {
+	server := string(generateMultiFileV(t, "openapi-3.2", "jsonlines.yaml").Server)
+	// Both JSON Lines media types (application/jsonl, application/x-ndjson)
+	// generate ginx.JSONLines streaming handlers, NOT FileRsp binary handlers.
+	assertContains(t, server, "TailLogs(ctx context.Context, req *TailLogsReq, send ginx.JSONLinesSender) error")
+	assertContains(t, server, "IngestBatch(ctx context.Context, req *IngestBatchReq, send ginx.JSONLinesSender) error")
+	assertContains(t, server, `ginx.JSONLines(r, "GET", "/logs/:source/tail", s.TailLogs, opts...)`)
+	assertContains(t, server, `ginx.JSONLines(r, "POST", "/ingest", s.IngestBatch, opts...)`)
+	assertNotContains(t, server, "ginx.FileRsp")
+}
+
+func TestE2E_OAI32_JSONLinesClient(t *testing.T) {
+	client := string(generateMultiFileV(t, "openapi-3.2", "jsonlines.yaml").Client)
+	assertContains(t, client, "TailLogs(ctx context.Context, req *TailLogsReq) (*ginx.JSONLinesStream, error)")
+	assertContains(t, client, "IngestBatch(ctx context.Context, req *IngestBatchReq) (*ginx.JSONLinesStream, error)")
+	// The streaming client must opt out of response buffering.
+	assertContains(t, client, ".SetResponseDoNotParse(true)")
+	assertContains(t, client, "ginx.NewJSONLinesStream(ctx, resp.Body)")
+}
+
+func TestE2E_OAI32_JSONLinesMediaTypesNotBinary(t *testing.T) {
+	// Direct guard: JSON Lines media types must not be classified as binary.
+	if isBinaryContentType("application/jsonl") {
+		t.Error("application/jsonl should not be binary")
+	}
+	if isBinaryContentType("application/x-ndjson") {
+		t.Error("application/x-ndjson should not be binary")
+	}
+	if isJSONLinesContentType("application/jsonl") != true || isJSONLinesContentType("application/x-ndjson") != true {
+		t.Error("jsonl/x-ndjson should be JSON Lines content types")
+	}
+}
+
+func TestE2E_OAI32_QuerystringNormalizedToQuery(t *testing.T) {
+	code := generateSingleFileV(t, "openapi-3.2", "querystring_params.yaml")
+	// `in: querystring` (3.2) is normalized to an ordinary query parameter.
+	assertContains(t, code, `Q string `+"`"+`form:"q" binding:"required"`+"`")
+	assertContains(t, code, `Limit *int `+"`"+`form:"limit"`+"`")
+	assertValidGo(t, code)
+}
+
+// TestE2E_OAI32_UnsupportedStructuralFieldsRejected documents the kin-openapi
+// v0.140.0 boundary: brand-new 3.2 struct fields are rejected at validation
+// with a clear error (rather than silently mis-generated). Upgrade kin-openapi
+// when a 3.2-aware release is available.
+func TestE2E_OAI32_UnsupportedStructuralFieldsRejected(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]string{
+		"itemSchema": `openapi: "3.2.0"
+info: { title: t, version: "1" }
+paths:
+  /s:
+    get:
+      operationId: s
+      responses:
+        "200":
+          description: ok
+          content:
+            application/jsonl:
+              itemSchema: { type: object }
+              schema: { type: object }
+`,
+		"additionalOperations": `openapi: "3.2.0"
+info: { title: t, version: "1" }
+paths:
+  /s:
+    get:
+      operationId: s
+      responses: { "200": { description: ok } }
+    additionalOperations:
+      PURGE:
+        operationId: p
+        responses: { "204": { description: ok } }
+`,
+		"queryMethod": `openapi: "3.2.0"
+info: { title: t, version: "1" }
+paths:
+  /s:
+    query:
+      operationId: q
+      responses: { "200": { description: ok } }
+`,
+		"structuredTags": `openapi: "3.2.0"
+info: { title: t, version: "1" }
+tags:
+  - { name: x, kind: resource, parent: y, summary: s }
+paths: {}
+`,
+	}
+	for name, spec := range cases {
+		t.Run(name, func(t *testing.T) {
+			specPath := filepath.Join(dir, name+".yaml")
+			if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+				t.Fatalf("write spec: %v", err)
+			}
+			_, err := GenerateMulti(Config{
+				PackageName:   "api",
+				SpecPath:      specPath,
+				OutputOptions: OutputOptions{SkipFmt: true},
+			})
+			if err == nil {
+				t.Fatalf("expected validation error for 3.2 field %q, got nil", name)
+			}
+			if !strings.Contains(err.Error(), "validate spec") {
+				t.Fatalf("error should come from spec validation, got: %v", err)
+			}
+		})
+	}
 }
 
 // ============================================================

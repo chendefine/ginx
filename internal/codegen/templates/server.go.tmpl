@@ -15,6 +15,8 @@ type {{ .ServerName }}ServerInterface interface {
 	// {{ .Method }} {{ .GinPath }}
 {{- if .IsSSE }}
 	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req, send ginx.Sender) error
+{{- else if .IsJSONLines }}
+	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req, send ginx.JSONLinesSender) error
 {{- else }}
 	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req) (*{{ .RspTypeName }}, error)
 {{- end }}
@@ -25,6 +27,8 @@ func Register{{ .ServerName }}Routes(r gin.IRoutes, s {{ .ServerName }}ServerInt
 {{- range .Operations }}
 {{- if .IsSSE }}
 	ginx.SSE(r, "{{ .GinPath }}", s.{{ .Name }}, opts...)
+{{- else if .IsJSONLines }}
+	ginx.JSONLines(r, "{{ .Method }}", "{{ .GinPath }}", s.{{ .Name }}, opts...)
 {{- else }}
 	ginx.{{ .Method | title }}(r, "{{ .GinPath }}", s.{{ .Name }}, opts...)
 {{- end }}

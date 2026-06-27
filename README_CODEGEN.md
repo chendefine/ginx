@@ -224,6 +224,21 @@ ListEvents(ctx context.Context, req *ListEventsReq, send ginx.Sender) error
 
 注册时使用 `ginx.SSE`。如果生成 client，SSE 客户端方法返回 `*ginx.SSEStream`，调用方使用 `Recv()` 拉取事件并在结束时调用 `Close()`。
 
+## JSON Lines / NDJSON（OpenAPI 3.2）
+
+满足任一条件会生成 JSON Lines 流式 operation：
+
+- operation 设置 `x-ginx-jsonl: true`
+- 成功响应 content type 为 `application/jsonl` 或 `application/x-ndjson`
+
+```go
+TailLogs(ctx context.Context, req *TailLogsReq, send ginx.JSONLinesSender) error
+```
+
+注册时使用 `ginx.JSONLines`；每个 item 经 `send` 写为紧凑 JSON + `\n` 并 flush。客户端方法返回 `*ginx.JSONLinesStream`，`Recv()` 逐行返回 `json.RawMessage`（item 类型为 `any`，因 3.2 `itemSchema` 被解析库丢弃）。详见 `docs/CODEGEN_REFERENCE.md`。
+
+> 3.1 新增：`const`→`oneof`、`prefixItems` 元组→`[]any`、可空 type 数组、`webhooks` 入站处理器、数值 exclusive 边界。3.2 的 `in: querystring` 归一化为普通 query 参数；`itemSchema`/`QUERY`/`additionalOperations` 等结构化字段受 kin-openapi v0.140.0 限制会在校验阶段清晰报错（库限制，待上游支持）。
+
 ## 客户端 SDK
 
 启用方式：
@@ -267,7 +282,8 @@ rsp, err := client.GetPet(context.Background(), &api.GetPetReq{PetID: 1})
 | 扩展 | 位置 | 作用 |
 |---|---|---|
 | `x-ginx-sse: true` | operation | 强制生成 SSE handler/client |
-| `x-ginx-response: file|string|data|redirect` | operation 或 response | 覆盖非 JSON 响应分类 |
+| `x-ginx-jsonl: true` | operation | 强制生成 JSON Lines 流式 handler/client |
+| `x-ginx-response: file\|string\|data\|redirect` | operation 或 response | 覆盖非 JSON 响应分类 |
 | `x-ginx-primary-response: true` | response | 多个成功响应中选择主响应 |
 | `x-binding: "..."` | schema/property | 追加自定义 validator 规则 |
 

@@ -25,7 +25,7 @@ func TestCLI_GeneratesFilesFromConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "oapi-ginx.yaml")
 	config := `package: clie2e
-spec: ` + filepath.ToSlash(filepath.Join(root, "internal/codegen/e2etest/spec/basic_types.yaml")) + `
+spec: ` + filepath.ToSlash(filepath.Join(root, "internal/codegen/e2etest/openapi-3.0/spec/basic_types.yaml")) + `
 output:
   types: ` + filepath.ToSlash(filepath.Join(dir, "types.gen.go")) + `
   server: ` + filepath.ToSlash(filepath.Join(dir, "server.gen.go")) + `
@@ -63,7 +63,7 @@ func TestCLI_StdoutSingleFile(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	specPath := filepath.Join(root, "internal/codegen/e2etest/spec/server_name.yaml")
+	specPath := filepath.Join(root, "internal/codegen/e2etest/openapi-3.0/spec/server_name.yaml")
 	cmd := exec.Command("go", "run", "./cmd/oapi-ginx", "-p", "stdoutapi", specPath)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
