@@ -42,6 +42,7 @@ type EnumDef struct {
 	TypeName string
 	BaseType string
 	Values   []EnumValue
+	Comment  string
 }
 
 type EnumValue struct {
@@ -58,6 +59,7 @@ type TypeDef struct {
 type AliasDef struct {
 	Name       string
 	TargetType string
+	Comment    string
 }
 
 func ResolveSchema(name string, schemaRef *openapi3.SchemaRef, imports map[string]bool, seen map[string]bool) []TypeDef {
@@ -90,14 +92,14 @@ func ResolveSchema(name string, schemaRef *openapi3.SchemaRef, imports map[strin
 
 	if len(schema.OneOf) > 0 || len(schema.AnyOf) > 0 {
 		imports["encoding/json"] = true
-		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "json.RawMessage"}}}
+		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "json.RawMessage", Comment: schema.Description}}}
 	}
 
 	goType, imp := MapType(schemaTypeStr(schema), schema.Format)
 	if imp != "" {
 		imports[imp] = true
 	}
-	return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: goType}}}
+	return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: goType, Comment: schema.Description}}}
 }
 
 func resolveEnum(name string, schema *openapi3.Schema) []TypeDef {
@@ -114,15 +116,15 @@ func resolveEnum(name string, schema *openapi3.Schema) []TypeDef {
 		}
 		values = append(values, EnumValue{Name: constName, Value: literal})
 	}
-	return []TypeDef{{Enum: &EnumDef{TypeName: name, BaseType: baseType, Values: values}}}
+	return []TypeDef{{Enum: &EnumDef{TypeName: name, BaseType: baseType, Values: values, Comment: schema.Description}}}
 }
 
 func resolveArrayAlias(name string, schema *openapi3.Schema, imports map[string]bool) []TypeDef {
 	if isArrayTuple(schema) {
-		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "[]any"}}}
+		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "[]any", Comment: schema.Description}}}
 	}
 	elemType := resolveTypeString(schema.Items, imports)
-	return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "[]" + elemType}}}
+	return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "[]" + elemType, Comment: schema.Description}}}
 }
 
 // isArrayTuple reports whether an array schema is an OpenAPI 3.1 positional
@@ -138,11 +140,11 @@ func isArrayTuple(schema *openapi3.Schema) bool {
 func resolveObject(name string, schema *openapi3.Schema, imports map[string]bool, seen map[string]bool) []TypeDef {
 	if len(schema.Properties) == 0 && schema.AdditionalProperties.Schema != nil {
 		valType := resolveTypeString(schema.AdditionalProperties.Schema, imports)
-		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "map[string]" + valType}}}
+		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "map[string]" + valType, Comment: schema.Description}}}
 	}
 
 	if len(schema.Properties) == 0 && schema.AdditionalProperties.Has != nil && *schema.AdditionalProperties.Has {
-		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "map[string]any"}}}
+		return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: "map[string]any", Comment: schema.Description}}}
 	}
 
 	requiredSet := make(map[string]bool)
@@ -174,9 +176,10 @@ func resolveObject(name string, schema *openapi3.Schema, imports map[string]bool
 		}
 
 		fields = append(fields, FieldDef{
-			Name: fieldName,
-			Type: fieldType,
-			Tags: tags,
+			Name:    fieldName,
+			Type:    fieldType,
+			Tags:    tags,
+			Comment: schemaDescription(propRef),
 		})
 	}
 
@@ -219,9 +222,9 @@ func resolveAllOf(name string, schema *openapi3.Schema, imports map[string]bool,
 
 	if len(merged.Properties) == 0 && len(embeds) > 0 {
 		if len(embeds) == 1 {
-			return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: embeds[0]}}}
+			return []TypeDef{{Alias: &AliasDef{Name: name, TargetType: embeds[0], Comment: merged.Description}}}
 		}
-		return []TypeDef{{Struct: &StructDef{Name: name, Embeds: embeds}}}
+		return []TypeDef{{Struct: &StructDef{Name: name, Comment: merged.Description, Embeds: embeds}}}
 	}
 
 	types := resolveObject(name, merged, imports, seen)
@@ -229,6 +232,13 @@ func resolveAllOf(name string, schema *openapi3.Schema, imports map[string]bool,
 		types[0].Struct.Embeds = embeds
 	}
 	return types
+}
+
+func schemaDescription(ref *openapi3.SchemaRef) string {
+	if ref == nil || ref.Value == nil {
+		return ""
+	}
+	return ref.Value.Description
 }
 
 func resolveFieldType(nestedName string, ref *openapi3.SchemaRef, imports map[string]bool, seen map[string]bool) (string, []TypeDef) {

@@ -15,6 +15,7 @@ var tmpl *template.Template
 func init() {
 	funcMap := template.FuncMap{
 		"renderTags":         renderTags,
+		"docComment":         renderDocComment,
 		"title":              titleCase,
 		"lower":              strings.ToLower,
 		"methodCall":         methodCall,
@@ -40,6 +41,39 @@ func init() {
 		"statusArgs":         statusArgs,
 	}
 	tmpl = template.Must(template.New("").Funcs(funcMap).ParseFS(templateFS, "templates/*.tmpl"))
+}
+
+func renderDocComment(indent, name, description string) string {
+	description = strings.TrimSpace(strings.ReplaceAll(description, "\r\n", "\n"))
+	if description == "" {
+		return ""
+	}
+
+	lines := strings.Split(description, "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(indent)
+		if i == 0 {
+			b.WriteString("// ")
+			b.WriteString(name)
+			if line != "" {
+				b.WriteByte(' ')
+				b.WriteString(line)
+			}
+			continue
+		}
+		if line == "" {
+			b.WriteString("//")
+		} else {
+			b.WriteString("// ")
+			b.WriteString(line)
+		}
+	}
+	return b.String()
 }
 
 func renderTags(tags []Tag) string {

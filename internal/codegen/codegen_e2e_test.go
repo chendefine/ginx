@@ -162,6 +162,138 @@ func TestE2E_BasicTypes_TimeImport(t *testing.T) {
 	assertContains(t, code, `"time"`)
 }
 
+func TestE2E_PreservesOpenAPIDescriptionsAsGoComments(t *testing.T) {
+	specFile := filepath.Join(t.TempDir(), "descriptions.yaml")
+	spec := `openapi: "3.0.3"
+info:
+  title: Description Metadata Test
+  version: "1.0.0"
+components:
+  schemas:
+    Status:
+      description: Current lifecycle status.
+      type: string
+      enum: [active, disabled]
+    UserIDs:
+      description: User identifiers in display order.
+      type: array
+      items:
+        type: integer
+        format: int64
+    User:
+      description: |
+        A user returned by the API.
+        Includes public profile data.
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          description: |
+            Stable user identifier.
+
+            Never reused.
+          type: integer
+          format: int64
+        status:
+          description: Status visible to callers.
+          type: string
+paths:
+  /users/{user_id}:
+    get:
+      operationId: getUser
+      summary: Fetch one user
+      description: Returns the public user profile.
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          description: Identifies the requested user.
+          schema:
+            type: integer
+            format: int64
+        - name: locale
+          in: query
+          schema:
+            description: Requested response locale.
+            type: string
+      responses:
+        "200":
+          description: Found user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /users:
+    post:
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name]
+              properties:
+                display_name:
+                  description: Name shown in the user interface.
+                  type: string
+      responses:
+        "204":
+          description: Created
+  /profiles:
+    post:
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [nickname]
+              properties:
+                nickname:
+                  description: Public profile nickname.
+                  type: string
+      responses:
+        "204":
+          description: Uploaded
+`
+	if err := os.WriteFile(specFile, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	result := generateMultiFileAt(t, specFile)
+	typesCode := string(result.Types)
+	serverCode := string(result.Server)
+	clientCode := string(result.Client)
+
+	for _, want := range []string{
+		"// Status Current lifecycle status.\ntype Status string",
+		"// UserIds User identifiers in display order.\ntype UserIds = []int64",
+		"// User A user returned by the API.\n// Includes public profile data.\ntype User struct",
+		"\t// ID Stable user identifier.\n\t//\n\t// Never reused.\n\tID int64",
+		"\t// Status Status visible to callers.\n\tStatus string",
+		"\t// UserID Identifies the requested user.\n\tUserID int64",
+		"\t// Locale Requested response locale.\n\tLocale *string",
+		"\t// DisplayName Name shown in the user interface.\n\tDisplayName string",
+		"\t// Nickname Public profile nickname.\n\tNickname string",
+	} {
+		assertContains(t, typesCode, want)
+	}
+
+	operationComment := "\t// GetUser Fetch one user\n\t//\n\t// Returns the public user profile."
+	assertContains(t, serverCode, operationComment)
+	assertContains(t, clientCode, operationComment)
+	assertValidGo(t, typesCode)
+	assertValidGo(t, serverCode)
+	assertValidGo(t, clientCode)
+
+	singleFileCode := generateSingleFileAt(t, specFile)
+	assertContains(t, singleFileCode, "// User A user returned by the API.")
+	assertContains(t, singleFileCode, operationComment)
+	assertValidGo(t, singleFileCode)
+}
+
 // ============================================================
 // Module 2: Complex Types
 // ============================================================

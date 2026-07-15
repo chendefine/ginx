@@ -74,7 +74,7 @@ func GenerateMulti(cfg Config) (*GenerateResult, error) {
 		if op.Request != nil {
 			if generateServer || generateClient || len(op.Request.Fields) > 0 || len(op.Request.Embeds) > 0 || op.Request.AliasTarget != "" {
 				if op.Request.AliasTarget != "" {
-					allTypes = append(allTypes, TypeDef{Alias: &AliasDef{Name: op.Request.Name, TargetType: op.Request.AliasTarget}})
+					allTypes = append(allTypes, TypeDef{Alias: &AliasDef{Name: op.Request.Name, TargetType: op.Request.AliasTarget, Comment: op.Request.Comment}})
 				} else {
 					allTypes = append(allTypes, TypeDef{Struct: op.Request})
 				}

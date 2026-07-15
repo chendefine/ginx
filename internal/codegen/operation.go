@@ -14,6 +14,7 @@ import (
 
 type OperationDef struct {
 	Name             string
+	Comment          string
 	Method           string
 	Path             string
 	GinPath          string
@@ -155,6 +156,7 @@ func buildOperationDef(method, path string, pathItem *openapi3.PathItem, op *ope
 
 	return OperationDef{
 		Name:             opName,
+		Comment:          operationComment(op),
 		Method:           method,
 		Path:             path,
 		GinPath:          swaggerPathToGin(path),
@@ -223,10 +225,11 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 		}
 
 		fields = append(fields, FieldDef{
-			Name:   fieldName,
-			Type:   fieldType,
-			Tags:   tags,
-			Source: source,
+			Name:    fieldName,
+			Type:    fieldType,
+			Tags:    tags,
+			Comment: firstNonEmpty(param.Description, schemaDescription(param.Schema)),
+			Source:  source,
 		})
 	}
 
@@ -261,10 +264,11 @@ func buildRequestStruct(opName string, pathItem *openapi3.PathItem, op *openapi3
 						tags = append(tags, Tag{Key: "binding", Value: "required"})
 					}
 					fields = append(fields, FieldDef{
-						Name:   "Body",
-						Type:   bodyType,
-						Tags:   tags,
-						Source: fieldSourceBody,
+						Name:    "Body",
+						Type:    bodyType,
+						Tags:    tags,
+						Comment: firstNonEmpty(schemaDescription(mt.Schema), body.Description),
+						Source:  fieldSourceBody,
 					})
 				}
 			}
@@ -324,10 +328,11 @@ func flattenBodyFields(parentName string, schemaRef *openapi3.SchemaRef, imports
 		}
 
 		fields = append(fields, FieldDef{
-			Name:   fieldName,
-			Type:   fieldType,
-			Tags:   tags,
-			Source: fieldSourceBody,
+			Name:    fieldName,
+			Type:    fieldType,
+			Tags:    tags,
+			Comment: schemaDescription(propRef),
+			Source:  fieldSourceBody,
 		})
 	}
 	return fields, extraTypes
@@ -379,10 +384,11 @@ func buildFormDataFields(parentName string, schemaRef *openapi3.SchemaRef, impor
 		}
 
 		fields = append(fields, FieldDef{
-			Name:   fieldName,
-			Type:   fieldType,
-			Tags:   tags,
-			Source: fieldSourceBody,
+			Name:    fieldName,
+			Type:    fieldType,
+			Tags:    tags,
+			Comment: schemaDescription(propRef),
+			Source:  fieldSourceBody,
 		})
 	}
 	return fields, extraTypes
@@ -409,6 +415,28 @@ func isFileArrayField(ref *openapi3.SchemaRef) bool {
 
 func isPointer(goType string) bool {
 	return len(goType) > 0 && goType[0] == '*'
+}
+
+func operationComment(op *openapi3.Operation) string {
+	if op == nil {
+		return ""
+	}
+	if op.Summary == "" {
+		return op.Description
+	}
+	if op.Description == "" || op.Description == op.Summary {
+		return op.Summary
+	}
+	return op.Summary + "\n\n" + op.Description
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func resolveParamType(param *openapi3.Parameter, imports map[string]bool) string {
@@ -635,7 +663,7 @@ func buildNamedResponseType(typeName string, schema *openapi3.SchemaRef, unwrap 
 		return nil
 	}
 	if effective.Ref != "" {
-		return []TypeDef{{Alias: &AliasDef{Name: typeName, TargetType: refToTypeName(effective.Ref)}}}
+		return []TypeDef{{Alias: &AliasDef{Name: typeName, TargetType: refToTypeName(effective.Ref), Comment: schemaDescription(effective)}}}
 	}
 	return ResolveSchema(typeName, effective, imports, seen)
 }

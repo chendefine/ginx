@@ -13,6 +13,10 @@ type {{ .ServerName }}ClientOption func(*resty.Client)
 
 type {{ .ServerName }}ClientInterface interface {
 {{- range .Operations }}
+	// {{ .Method }} {{ .GinPath }}
+	{{- if .Comment }}
+{{ docComment "\t" .Name .Comment }}
+	{{- end }}
 {{- if .IsSSE }}
 	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req) (*ginx.SSEStream, error)
 {{- else if .IsJSONLines }}

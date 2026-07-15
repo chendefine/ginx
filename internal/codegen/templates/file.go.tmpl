@@ -11,6 +11,8 @@ import (
 {{ end }}
 {{- range .Types }}
 {{- if .Enum }}
+{{ if .Enum.Comment }}{{ docComment "" .Enum.TypeName .Enum.Comment }}
+{{ end -}}
 type {{ .Enum.TypeName }} {{ .Enum.BaseType }}
 
 const (
@@ -21,16 +23,21 @@ const (
 )
 {{ end -}}
 {{- if .Alias }}
+{{ if .Alias.Comment }}{{ docComment "" .Alias.Name .Alias.Comment }}
+{{ end -}}
 type {{ .Alias.Name }} = {{ .Alias.TargetType }}
 {{ end -}}
 {{- if .Struct }}
-{{ if .Struct.Comment }}// {{ .Struct.Name }} {{ .Struct.Comment }}
+{{ if .Struct.Comment }}{{ docComment "" .Struct.Name .Struct.Comment }}
 {{ end -}}
 type {{ .Struct.Name }} struct {
 {{- range .Struct.Embeds }}
 	{{ . }}
 {{- end }}
 {{- range .Struct.Fields }}
+{{- if .Comment }}
+{{ docComment "\t" .Name .Comment }}
+{{- end }}
 	{{ .Name }} {{ .Type }} {{ renderTags .Tags }}
 {{- end }}
 }
@@ -40,6 +47,9 @@ type {{ .Struct.Name }} struct {
 {{- if and .GenerateServer .Operations }}
 type {{ .ServerName }}ServerInterface interface {
 {{- range .Operations }}
+	{{- if .Comment }}
+{{ docComment "\t" .Name .Comment }}
+	{{- end }}
 	// {{ .Method }} {{ .GinPath }}
 {{- if .IsSSE }}
 	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req, send ginx.Sender) error
@@ -71,6 +81,9 @@ type {{ .ServerName }}ClientOption func(*resty.Client)
 
 type {{ .ServerName }}ClientInterface interface {
 {{- range .Operations }}
+	{{- if .Comment }}
+{{ docComment "\t" .Name .Comment }}
+	{{- end }}
 {{- if .IsSSE }}
 	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req) (*ginx.SSEStream, error)
 {{- else if .IsJSONLines }}

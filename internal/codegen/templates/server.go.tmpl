@@ -13,6 +13,9 @@ import (
 type {{ .ServerName }}ServerInterface interface {
 {{- range .Operations }}
 	// {{ .Method }} {{ .GinPath }}
+	{{- if .Comment }}
+{{ docComment "\t" .Name .Comment }}
+	{{- end }}
 {{- if .IsSSE }}
 	{{ .Name }}(ctx context.Context, req *{{ .Name }}Req, send ginx.Sender) error
 {{- else if .IsJSONLines }}
