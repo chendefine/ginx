@@ -182,6 +182,7 @@ r.Run(":8080")
 - OpenAPI `default` 会生成 `default` tag。
 - OpenAPI schema 约束会尽量转换为 Gin validator 的 `binding` tag。
 - OpenAPI 的 schema、字段和参数 `description` 会保留为对应 Go 类型/字段注释；operation 的 `summary` 与 `description` 会保留为生成接口方法注释。
+- 生成的 Go struct 字段会保持 OpenAPI `properties` 中的声明顺序；无法取得源位置信息时才按字段名稳定排序。
 - 非 required 的标量参数通常生成为指针，客户端发送请求时会跳过 `nil` 字段。
 
 当前生成的常规 HTTP operation 支持 GET、HEAD、POST、PUT、PATCH、DELETE、OPTIONS；TRACE 会在生成期明确报错。

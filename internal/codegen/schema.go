@@ -155,7 +155,7 @@ func resolveObject(name string, schema *openapi3.Schema, imports map[string]bool
 	var fields []FieldDef
 	var additionalTypes []TypeDef
 
-	propNames := sortedPropertyNames(schema.Properties)
+	propNames := orderedPropertyNames(schema.Properties)
 	for _, propName := range propNames {
 		propRef := schema.Properties[propName]
 		fieldName := ToCamelCase(propName)
@@ -368,11 +368,40 @@ func typeIs(schema *openapi3.Schema, typ string) bool {
 	return schema != nil && schema.Type != nil && schema.Type.Includes(typ)
 }
 
-func sortedPropertyNames(props openapi3.Schemas) []string {
+func orderedPropertyNames(props openapi3.Schemas) []string {
 	names := make([]string, 0, len(props))
 	for k := range props {
 		names = append(names, k)
 	}
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		left, leftOK := schemaRefLocation(props[names[i]])
+		right, rightOK := schemaRefLocation(props[names[j]])
+		if leftOK && rightOK {
+			if left.File != right.File {
+				return left.File < right.File
+			}
+			if left.Line != right.Line {
+				return left.Line < right.Line
+			}
+			if left.Column != right.Column {
+				return left.Column < right.Column
+			}
+		}
+		if leftOK != rightOK {
+			return leftOK
+		}
+		return names[i] < names[j]
+	})
 	return names
+}
+
+func schemaRefLocation(ref *openapi3.SchemaRef) (openapi3.Location, bool) {
+	if ref == nil || ref.Origin == nil || ref.Origin.Key == nil {
+		return openapi3.Location{}, false
+	}
+	location := *ref.Origin.Key
+	if location.Line == 0 && location.Column == 0 {
+		return openapi3.Location{}, false
+	}
+	return location, true
 }

@@ -114,6 +114,18 @@ func assertValidGo(t *testing.T, code string) {
 	}
 }
 
+func assertInOrder(t *testing.T, code string, parts ...string) {
+	t.Helper()
+	offset := 0
+	for _, part := range parts {
+		index := strings.Index(code[offset:], part)
+		if index < 0 {
+			t.Fatalf("expected %q after byte %d.\nCode:\n%s", part, offset, code)
+		}
+		offset += index + len(part)
+	}
+}
+
 // ============================================================
 // Module 1: Basic Types
 // ============================================================
@@ -431,6 +443,46 @@ func TestE2E_RequestParams_InlineBody(t *testing.T) {
 	assertContains(t, code, "type UpdateUserReq struct")
 	assertContains(t, code, `Name string `+"`"+`json:"name" binding:"required"`+"`")
 	assertContains(t, code, `Email *string `+"`"+`json:"email" binding:"email"`+"`")
+}
+
+func TestE2E_StructFieldsPreserveOpenAPIOrder(t *testing.T) {
+	code := generateSingleFile(t, "request_params.yaml")
+
+	// Component schema properties.
+	assertInOrder(t, code,
+		"type CreateUserInput struct",
+		`Name string `+"`"+`json:"name" binding:"required"`+"`",
+		`Email string `+"`"+`json:"email" binding:"required,email"`+"`",
+		`Age *int `+"`"+`json:"age"`+"`",
+	)
+	// Inline JSON body properties follow operation parameters.
+	assertInOrder(t, code,
+		"type UpdateUserReq struct",
+		`UserID int64 `+"`"+`uri:"user_id" binding:"required"`+"`",
+		`XAuthToken string `+"`"+`header:"X-Auth-Token" binding:"required"`+"`",
+		`Name string `+"`"+`json:"name" binding:"required"`+"`",
+		`Email *string `+"`"+`json:"email" binding:"email"`+"`",
+	)
+	// Form and multipart body properties.
+	assertInOrder(t, code,
+		"type LoginReq struct",
+		`Username string `+"`"+`form:"username" binding:"required"`+"`",
+		`Password string `+"`"+`form:"password" binding:"required"`+"`",
+		`Remember *bool `+"`"+`form:"remember"`+"`",
+	)
+	assertInOrder(t, code,
+		"type UploadFileReq struct",
+		`File *multipart.FileHeader `+"`"+`form:"file" binding:"required"`+"`",
+		`Description string `+"`"+`form:"description" binding:"required"`+"`",
+		`Tags *string `+"`"+`form:"tags"`+"`",
+	)
+
+	responseCode := generateSingleFileV(t, "openapi-3.2", "querystring_params.yaml")
+	assertInOrder(t, responseCode,
+		"type SearchRsp struct",
+		`Q *string `+"`"+`json:"q"`+"`",
+		`Limit *int `+"`"+`json:"limit"`+"`",
+	)
 }
 
 func TestE2E_RequestParams_RefBody(t *testing.T) {

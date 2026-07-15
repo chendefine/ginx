@@ -307,7 +307,7 @@ func flattenBodyFields(parentName string, schemaRef *openapi3.SchemaRef, imports
 	var fields []FieldDef
 	var extraTypes []TypeDef
 
-	propNames := sortedPropertyNames(schema.Properties)
+	propNames := orderedPropertyNames(schema.Properties)
 	for _, propName := range propNames {
 		propRef := schema.Properties[propName]
 		fieldName := ToCamelCase(propName)
@@ -352,7 +352,7 @@ func buildFormDataFields(parentName string, schemaRef *openapi3.SchemaRef, impor
 	var fields []FieldDef
 	var extraTypes []TypeDef
 
-	propNames := sortedPropertyNames(schema.Properties)
+	propNames := orderedPropertyNames(schema.Properties)
 	for _, propName := range propNames {
 		propRef := schema.Properties[propName]
 		fieldName := ToCamelCase(propName)

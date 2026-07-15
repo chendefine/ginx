@@ -26,6 +26,10 @@ func Generate(cfg Config) ([]byte, error) {
 
 func GenerateMulti(cfg Config) (*GenerateResult, error) {
 	loader := openapi3.NewLoader()
+	// Schemas store properties in maps, so their declaration order would be
+	// lost after parsing. Keep source locations and use them when materializing
+	// Go struct fields.
+	loader.IncludeOrigin = true
 	spec, err := loader.LoadFromFile(cfg.SpecPath)
 	if err != nil {
 		return nil, fmt.Errorf("load spec: %w", err)
