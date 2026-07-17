@@ -442,7 +442,7 @@ func TestE2E_RequestParams_InlineBody(t *testing.T) {
 
 	assertContains(t, code, "type UpdateUserReq struct")
 	assertContains(t, code, `Name string `+"`"+`json:"name" binding:"required"`+"`")
-	assertContains(t, code, `Email *string `+"`"+`json:"email" binding:"email"`+"`")
+	assertContains(t, code, `Email *string `+"`"+`json:"email" binding:"omitempty,email"`+"`")
 }
 
 func TestE2E_StructFieldsPreserveOpenAPIOrder(t *testing.T) {
@@ -461,7 +461,7 @@ func TestE2E_StructFieldsPreserveOpenAPIOrder(t *testing.T) {
 		`UserID int64 `+"`"+`uri:"user_id" binding:"required"`+"`",
 		`XAuthToken string `+"`"+`header:"X-Auth-Token" binding:"required"`+"`",
 		`Name string `+"`"+`json:"name" binding:"required"`+"`",
-		`Email *string `+"`"+`json:"email" binding:"email"`+"`",
+		`Email *string `+"`"+`json:"email" binding:"omitempty,email"`+"`",
 	)
 	// Form and multipart body properties.
 	assertInOrder(t, code,
@@ -1445,11 +1445,11 @@ func TestE2E_Validation_Required(t *testing.T) {
 func TestE2E_Validation_Format(t *testing.T) {
 	code := generateSingleFile(t, "validation.yaml")
 	assertContains(t, code, `Email string `+"`"+`json:"email" binding:"required,email"`+"`")
-	assertContains(t, code, `Website *string `+"`"+`json:"website" binding:"url"`+"`")
-	assertContains(t, code, `UUIDField *string `+"`"+`json:"uuid_field" binding:"uuid"`+"`")
-	assertContains(t, code, `Ipv4Field *string `+"`"+`json:"ipv4_field" binding:"ipv4"`+"`")
-	assertContains(t, code, `Ipv6Field *string `+"`"+`json:"ipv6_field" binding:"ipv6"`+"`")
-	assertContains(t, code, `HostnameField *string `+"`"+`json:"hostname_field" binding:"hostname"`+"`")
+	assertContains(t, code, `Website *string `+"`"+`json:"website" binding:"omitempty,url"`+"`")
+	assertContains(t, code, `UUIDField *string `+"`"+`json:"uuid_field" binding:"omitempty,uuid"`+"`")
+	assertContains(t, code, `Ipv4Field *string `+"`"+`json:"ipv4_field" binding:"omitempty,ipv4"`+"`")
+	assertContains(t, code, `Ipv6Field *string `+"`"+`json:"ipv6_field" binding:"omitempty,ipv6"`+"`")
+	assertContains(t, code, `HostnameField *string `+"`"+`json:"hostname_field" binding:"omitempty,hostname"`+"`")
 }
 
 func TestE2E_Validation_Enum(t *testing.T) {
@@ -1477,7 +1477,7 @@ func TestE2E_Validation_ArrayConstraints(t *testing.T) {
 
 func TestE2E_Validation_CustomBinding(t *testing.T) {
 	code := generateSingleFile(t, "validation.yaml")
-	assertContains(t, code, `binding:"e164"`)
+	assertContains(t, code, `binding:"omitempty,e164"`)
 }
 
 func TestE2E_Validation_DefaultValues(t *testing.T) {
@@ -1485,6 +1485,21 @@ func TestE2E_Validation_DefaultValues(t *testing.T) {
 	assertContains(t, code, `default:"1"`)
 	assertContains(t, code, `default:"20"`)
 	assertContains(t, code, `default:"created_at"`)
+}
+
+// 可选 query/字段 + 数值或长度约束必须前置 omitempty. go-playground/validator 对
+// nil 指针(客户端未传该参数)+ lte/gte/min/max/oneof/... 会直接判失败, 因为这些
+// 验证器不是 runValidationWhenNil 类型; 没有 omitempty 的话 "不传就 400".
+// 见 e2etest/openapi-3.0/spec/optional_bounds.yaml.
+func TestE2E_OptionalBoundedQueryParams(t *testing.T) {
+	code := generateSingleFile(t, "optional_bounds.yaml")
+
+	// 可选 query + 上界 -> omitempty,lte=365
+	assertContains(t, code, `ExpiringDays *int `+"`"+`form:"expiring_days" binding:"omitempty,lte=365"`+"`")
+	// 可选 query + 双侧界 -> omitempty,gte=0,lte=100
+	assertContains(t, code, `Score *int `+"`"+`form:"score" binding:"omitempty,gte=0,lte=100"`+"`")
+	// required query 保持 required 在前, 不加 omitempty
+	assertContains(t, code, `Status string `+"`"+`form:"status" binding:"required,max=20"`+"`")
 }
 
 // ============================================================
@@ -1529,7 +1544,7 @@ func TestE2E_OAI31_StringAndEnumAndArray(t *testing.T) {
 	assertContains(t, code, `Name string `+"`"+`json:"name" binding:"required,min=2,max=100"`+"`")
 	assertContains(t, code, `Email string `+"`"+`json:"email" binding:"required,email"`+"`")
 	assertContains(t, code, `Status string `+"`"+`json:"status" binding:"required,oneof=active inactive"`+"`")
-	assertContains(t, code, `Tags []string `+"`"+`json:"tags" binding:"min=1,unique"`+"`")
+	assertContains(t, code, `Tags []string `+"`"+`json:"tags" binding:"omitempty,min=1,unique"`+"`")
 }
 
 func TestE2E_OAI31_RoutesAndValidGo(t *testing.T) {
@@ -1592,8 +1607,8 @@ func TestE2E_OAI31_Const(t *testing.T) {
 	code := generateSingleFileV(t, "openapi-3.1", "const_types.yaml")
 
 	// string/integer const -> oneof=<value>.
-	assertContains(t, code, `Kind *string `+"`"+`json:"kind" binding:"oneof=payment"`+"`")
-	assertContains(t, code, `Retries *int `+"`"+`json:"retries" binding:"oneof=3"`+"`")
+	assertContains(t, code, `Kind *string `+"`"+`json:"kind" binding:"omitempty,oneof=payment"`+"`")
+	assertContains(t, code, `Retries *int `+"`"+`json:"retries" binding:"omitempty,oneof=3"`+"`")
 	// boolean const -> NO binding rule (validator oneof panics on bool).
 	assertContains(t, code, `Active *bool `+"`"+`json:"active"`+"`")
 	assertNotContains(t, code, `oneof=true`)

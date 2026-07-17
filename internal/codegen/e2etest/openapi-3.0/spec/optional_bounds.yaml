@@ -1,0 +1,39 @@
+openapi: "3.0.3"
+info:
+  title: Optional Bounded Parameter Test
+  version: "1.0.0"
+paths:
+  /leases:
+    get:
+      operationId: listLeases
+      parameters:
+        # 可选 query + 数值上界: 必须生成 omitempty,lte=365
+        - name: expiring_days
+          in: query
+          schema:
+            type: integer
+            maximum: 365
+        # 可选 query + 双侧界: 必须生成 omitempty,gte=0,lte=100
+        - name: score
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        # required query + 长度约束: 保持 required 在前, 不加 omitempty
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 20
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer

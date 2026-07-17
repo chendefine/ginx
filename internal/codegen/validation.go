@@ -99,6 +99,14 @@ func buildBindingRules(required bool, schemaRef *openapi3.SchemaRef) string {
 		rules = append(rules, ext)
 	}
 
+	// 非必填字段必须前置 omitempty: go-playground/validator 对"带约束的未提供值"
+	// (尤其是 nil 指针 + lte/gte/oneof/min/max/...) 会直接判失败, 因为这些验证器
+	// 不是 runValidationWhenNil 类型. omitempty 放在链首, 让空值/nil 跳过整个字段
+	// 的校验, 仅在客户端实际传值时才校验约束. required 字段不在此列.
+	if !required && len(rules) > 0 {
+		rules = append([]string{"omitempty"}, rules...)
+	}
+
 	return strings.Join(rules, ",")
 }
 
